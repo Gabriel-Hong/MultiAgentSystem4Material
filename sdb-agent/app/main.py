@@ -14,6 +14,11 @@ try:
     from app.bitbucket_api import BitbucketAPI
     from app.llm_handler import LLMHandler
     from app.issue_processor import IssueProcessor
+    from app.metrics import (
+        track_processing_time,
+        get_metrics,
+        sdb_pr_created_total
+    )
 except ImportError:
     # 직접 실행시를 위한 상대 경로 임포트
     import sys
@@ -22,6 +27,11 @@ except ImportError:
     from bitbucket_api import BitbucketAPI
     from llm_handler import LLMHandler
     from issue_processor import IssueProcessor
+    from metrics import (
+        track_processing_time,
+        get_metrics,
+        sdb_pr_created_total
+    )
 
 # Flask 애플리케이션 초기화
 app = Flask(__name__)
@@ -80,7 +90,16 @@ def health_check():
     }), 200
 
 
+@app.route('/metrics', methods=['GET'])
+def metrics():
+    """Prometheus 메트릭 엔드포인트"""
+    from flask import Response
+    metrics_data, content_type = get_metrics()
+    return Response(metrics_data, mimetype=content_type)
+
+
 @app.route('/process', methods=['POST'])
+@track_processing_time
 def process_handler():
     """
     Router Agent용 표준 처리 엔드포인트
@@ -101,6 +120,7 @@ def process_handler():
         "version": "1.0.0"
     }
     """
+    pr_status = 'failed'
     try:
         payload = request.get_json()
         
@@ -122,6 +142,14 @@ def process_handler():
         # 기존 issue_processor 사용
         result = issue_processor.process_issue(issue)
         
+        # PR 생성 성공/실패 메트릭 기록
+        if result.get('status') == 'completed' and result.get('pr_url'):
+            pr_status = 'success'
+            sdb_pr_created_total.labels(status='success').inc()
+        else:
+            pr_status = 'failed'
+            sdb_pr_created_total.labels(status='failed').inc()
+        
         return jsonify({
             'status': result.get('status', 'completed'),
             'issue_key': issue_key,
@@ -131,6 +159,8 @@ def process_handler():
         }), 200
         
     except Exception as e:
+        # 에러 발생시 PR 실패 메트릭 기록
+        sdb_pr_created_total.labels(status='failed').inc()
         logger.error(f"처리 중 오류 발생: {str(e)}", exc_info=True)
         return jsonify({
             'status': 'failed',

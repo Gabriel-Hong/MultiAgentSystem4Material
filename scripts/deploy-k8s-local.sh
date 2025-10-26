@@ -105,7 +105,6 @@ helm upgrade --install multi-agent-system \
     ./helm/multi-agent-system \
     -f ./helm/multi-agent-system/values-local.yaml \
     --namespace agent-system \
-    --create-namespace \
     --wait \
     --timeout 5m
 
