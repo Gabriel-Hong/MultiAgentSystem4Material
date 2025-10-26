@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ccusage)"
+      "Bash(ccusage)",
+      "Bash(helm list:*)"
     ],
     "deny": [],
     "ask": []

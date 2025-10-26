@@ -1,0 +1,219 @@
+{{- if .Values.monitoring.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: {{ .Values.global.namespace }}
+data:
+  system-resources.json: |
+    {
+      "dashboard": {
+        "title": "시스템 리소스 모니터링",
+        "tags": ["kubernetes", "resources"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "title": "CPU 사용률 (%)",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(container_cpu_usage_seconds_total{namespace=\"agent-system\"}[5m]) * 100"
+              }
+            ],
+            "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8}
+          },
+          {
+            "title": "메모리 사용량 (MB)",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "container_memory_usage_bytes{namespace=\"agent-system\"} / 1024 / 1024"
+              }
+            ],
+            "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8}
+          },
+          {
+            "title": "네트워크 I/O (bytes/sec)",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(container_network_receive_bytes_total{namespace=\"agent-system\"}[5m])",
+                "legendFormat": "Receive"
+              },
+              {
+                "expr": "rate(container_network_transmit_bytes_total{namespace=\"agent-system\"}[5m])",
+                "legendFormat": "Transmit"
+              }
+            ],
+            "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8}
+          },
+          {
+            "title": "Pod 재시작 횟수",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "kube_pod_container_status_restarts_total{namespace=\"agent-system\"}"
+              }
+            ],
+            "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8}
+          }
+        ]
+      }
+    }
+  
+  api-performance.json: |
+    {
+      "dashboard": {
+        "title": "API 성능 모니터링",
+        "tags": ["api", "performance"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "title": "요청 처리량 (RPS)",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(router_requests_total[5m])"
+              }
+            ],
+            "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8}
+          },
+          {
+            "title": "응답 시간 (P50, P95, P99)",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.50, rate(router_agent_call_duration_seconds_bucket[5m]))",
+                "legendFormat": "P50"
+              },
+              {
+                "expr": "histogram_quantile(0.95, rate(router_agent_call_duration_seconds_bucket[5m]))",
+                "legendFormat": "P95"
+              },
+              {
+                "expr": "histogram_quantile(0.99, rate(router_agent_call_duration_seconds_bucket[5m]))",
+                "legendFormat": "P99"
+              }
+            ],
+            "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8}
+          },
+          {
+            "title": "에러율 (%)",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(router_errors_total[5m]) / rate(router_requests_total[5m]) * 100"
+              }
+            ],
+            "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8}
+          },
+          {
+            "title": "활성 요청 수",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "router_active_requests"
+              }
+            ],
+            "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8}
+          }
+        ]
+      }
+    }
+
+  business-metrics.json: |
+    {
+      "dashboard": {
+        "title": "비즈니스 메트릭",
+        "tags": ["business", "metrics"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "title": "시간당 처리 건수",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "increase(router_requests_total{status=\"success\"}[1h])"
+              }
+            ],
+            "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8}
+          },
+          {
+            "title": "Agent별 호출 비율",
+            "type": "piechart",
+            "targets": [
+              {
+                "expr": "sum by(agent) (rate(router_agent_calls_total[5m]))"
+              }
+            ],
+            "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8}
+          },
+          {
+            "title": "LLM 토큰 사용량",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(rate(sdb_llm_tokens_used_total[1h]))"
+              }
+            ],
+            "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8}
+          },
+          {
+            "title": "PR 생성 성공률",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "sum(sdb_pr_created_total{status=\"success\"}) / sum(sdb_pr_created_total) * 100"
+              }
+            ],
+            "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8}
+          }
+        ]
+      }
+    }
+
+  error-tracking.json: |
+    {
+      "dashboard": {
+        "title": "에러 추적",
+        "tags": ["errors", "tracking"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "title": "에러 발생 추이",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(router_errors_total[5m])"
+              },
+              {
+                "expr": "rate(sdb_errors_total[5m])"
+              }
+            ],
+            "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8}
+          },
+          {
+            "title": "에러 유형별 분포",
+            "type": "piechart",
+            "targets": [
+              {
+                "expr": "sum by(error_type) (increase(router_errors_total[1h]))"
+              }
+            ],
+            "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8}
+          },
+          {
+            "title": "Agent별 에러율",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum by(agent) (rate(router_errors_total[5m]))"
+              }
+            ],
+            "gridPos": {"x": 0, "y": 8, "w": 24, "h": 8}
+          }
+        ]
+      }
+    }
+{{- end }}
+

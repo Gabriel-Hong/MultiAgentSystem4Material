@@ -36,6 +36,12 @@ class IntentClassifier:
                 "reasoning": "..."
             }
         """
+        # 메트릭 import (circular import 방지를 위해 지연 import)
+        from .metrics import router_classification_duration_seconds, router_errors_total
+        import time
+        
+        start_time = time.time()
+        
         try:
             # 이슈 정보 추출
             fields = issue.get('fields', {})
@@ -68,12 +74,23 @@ class IntentClassifier:
             # 결과 파싱
             result = json.loads(response.choices[0].message.content)
             
-            logger.info(f"Classification result: {result.get('agent')} (confidence: {result.get('confidence')})")
+            # 메트릭 기록
+            duration = time.time() - start_time
+            router_classification_duration_seconds.observe(duration)
+            
+            logger.info(f"Classification result: {result.get('agent')} (confidence: {result.get('confidence')}, duration: {duration:.2f}s)")
             
             return result
             
         except Exception as e:
             logger.error(f"Classification error: {str(e)}", exc_info=True)
+            
+            # 에러 메트릭 기록
+            router_errors_total.labels(
+                error_type=type(e).__name__,
+                agent='classification'
+            ).inc()
+            
             # 기본값 반환 (낮은 신뢰도)
             return {
                 "agent": "sdb-agent",

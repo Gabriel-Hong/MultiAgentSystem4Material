@@ -19,6 +19,12 @@ spec:
         app: {{ .Values.routerAgent.name }}
         tier: orchestrator
         {{- include "multi-agent-system.selectorLabels" . | nindent 8 }}
+      {{- if .Values.monitoring.prometheus.enabled }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.routerAgent.service.targetPort }}"
+        prometheus.io/path: "/metrics"
+      {{- end }}
     spec:
       containers:
       - name: {{ .Values.routerAgent.name }}

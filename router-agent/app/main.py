@@ -16,6 +16,13 @@ from .config import get_settings
 from .intent_classifier import IntentClassifier
 from .agent_registry import AgentRegistry
 from .models import WebhookPayload, RouterResponse
+from .metrics import (
+    track_request_metrics,
+    track_classification,
+    track_agent_call,
+    get_metrics_response,
+    router_classification_confidence
+)
 
 # 로깅 설정
 logging.basicConfig(
@@ -52,6 +59,12 @@ async def root():
         "version": "1.0.0",
         "status": "running"
     }
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus 메트릭 엔드포인트"""
+    return get_metrics_response()
 
 
 @app.get("/health")
@@ -109,6 +122,7 @@ async def list_agents():
 
 
 @app.post("/webhook")
+@track_request_metrics("webhook")
 async def route_webhook(request: Request):
     """
     Jira Webhook을 받아서 적절한 Agent로 라우팅
@@ -136,6 +150,9 @@ async def route_webhook(request: Request):
         classification = intent_classifier.classify_issue(issue)
         agent_name = classification.get('agent')
         confidence = classification.get('confidence', 0.0)
+        
+        # 신뢰도 메트릭 기록
+        router_classification_confidence.observe(confidence)
         
         logger.info(f"Classified as {agent_name} (confidence: {confidence:.2f})")
         
@@ -165,25 +182,29 @@ async def route_webhook(request: Request):
                 detail=f"Agent {agent_name} is not available"
             )
         
-        # 4. Agent 호출
+        # 4. Agent 호출 (메트릭 추적 포함)
         logger.info(f"Routing to {agent_name} at {agent.service_url}")
         
-        async with httpx.AsyncClient(timeout=agent.timeout) as client:
-            response = await client.post(
-                f"{agent.service_url}/process",
-                json={
-                    "issue": issue,
-                    "classification": classification,
-                    "metadata": {
-                        "routed_at": datetime.now().isoformat(),
-                        "router_version": "1.0.0",
-                        "original_webhook_event": payload.get('webhookEvent')
+        @track_agent_call(agent_name)
+        async def call_agent():
+            async with httpx.AsyncClient(timeout=agent.timeout) as client:
+                response = await client.post(
+                    f"{agent.service_url}/process",
+                    json={
+                        "issue": issue,
+                        "classification": classification,
+                        "metadata": {
+                            "routed_at": datetime.now().isoformat(),
+                            "router_version": "1.0.0",
+                            "original_webhook_event": payload.get('webhookEvent')
+                        }
                     }
-                }
-            )
-            
-            response.raise_for_status()
-            result = response.json()
+                )
+                
+                response.raise_for_status()
+                return response.json()
+        
+        result = await call_agent()
         
         logger.info(f"Agent {agent_name} completed: {result.get('status')}")
         

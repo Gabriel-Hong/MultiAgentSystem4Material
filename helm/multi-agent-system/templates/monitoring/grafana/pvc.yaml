@@ -1,0 +1,17 @@
+{{- if .Values.monitoring.grafana.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: {{ .Values.global.namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.monitoring.grafana.storage }}
+  {{- if .Values.monitoring.grafana.storageClassName }}
+  storageClassName: {{ .Values.monitoring.grafana.storageClassName }}
+  {{- end }}
+{{- end }}
+
