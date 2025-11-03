@@ -50,6 +50,12 @@ spec:
           value: {{ .Values.routerAgent.env.logLevel | quote }}
         - name: SDB_AGENT_URL
           value: {{ .Values.routerAgent.env.sdbAgentUrl | quote }}
+        - name: REDIS_HOST
+          value: {{ .Values.routerAgent.env.redisHost | quote }}
+        - name: REDIS_PORT
+          value: {{ .Values.routerAgent.env.redisPort | quote }}
+        - name: REDIS_DB
+          value: {{ .Values.routerAgent.env.redisDB | quote }}
         resources:
           {{- toYaml .Values.routerAgent.resources | nindent 10 }}
         {{- if .Values.routerAgent.healthcheck.enabled }}

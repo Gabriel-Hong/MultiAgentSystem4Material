@@ -54,6 +54,24 @@ router_classification_confidence = Histogram(
     buckets=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 )
 
+# 캐시 메트릭 (Phase 2)
+cache_hits_total = Counter(
+    'cache_hits_total',
+    'Total cache hits',
+    ['cache_type']  # classification, agent_health
+)
+
+cache_misses_total = Counter(
+    'cache_misses_total',
+    'Total cache misses',
+    ['cache_type']
+)
+
+cache_size_bytes = Gauge(
+    'cache_size_bytes',
+    'Current cache size in bytes'
+)
+
 
 def track_request_metrics(endpoint: str):
     """요청 메트릭 추적 데코레이터"""

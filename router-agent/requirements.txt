@@ -21,3 +21,6 @@ colorlog==6.8.0
 # Prometheus 메트릭
 prometheus-client==0.18.0
 
+# Redis 캐싱 (Phase 2)
+redis==5.0.1
+

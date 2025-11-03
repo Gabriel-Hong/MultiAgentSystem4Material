@@ -12,45 +12,74 @@ logger = logging.getLogger(__name__)
 
 class IntentClassifier:
     """LLM을 사용한 Jira 이슈 분류기"""
-    
-    def __init__(self, api_key: str, model: str = "gpt-4-turbo-preview"):
+
+    def __init__(self, api_key: str, model: str = "gpt-4-turbo-preview", cache_manager=None):
         """
         Args:
             api_key: OpenAI API 키
             model: 사용할 모델
+            cache_manager: CacheManager 인스턴스 (선택)
         """
         self.client = OpenAI(api_key=api_key)
         self.model = model
+        self._cache = cache_manager
     
     def classify_issue(self, issue: Dict[str, Any]) -> Dict[str, Any]:
         """
         Jira 이슈를 분석하여 적절한 Agent 결정
-        
+
         Args:
             issue: Jira 이슈 정보
-            
+
         Returns:
             {
                 "agent": "sdb-agent",
                 "confidence": 0.95,
-                "reasoning": "..."
+                "reasoning": "...",
+                "cached": True/False
             }
         """
         # 메트릭 import (circular import 방지를 위해 지연 import)
-        from .metrics import router_classification_duration_seconds, router_errors_total
+        from .metrics import router_classification_duration_seconds, router_errors_total, cache_hits_total, cache_misses_total
         import time
-        
+
         start_time = time.time()
-        
+
         try:
             # 이슈 정보 추출
             fields = issue.get('fields', {})
             summary = fields.get('summary', '')
             description = fields.get('description', '')
             issue_type = fields.get('issuetype', {}).get('name', '')
-            
+
             logger.info(f"Classifying issue - Type: {issue_type}, Summary: {summary[:50]}...")
-            
+
+            # 캐시 확인
+            if self._cache:
+                cache_key = self._cache._generate_key(
+                    "classification",
+                    {
+                        "summary": summary,
+                        "description": description,
+                        "issue_type": issue_type
+                    }
+                )
+
+                cached = self._cache.get(cache_key)
+                if cached:
+                    logger.info(f"Classification 캐시 HIT: {issue.get('key')}")
+                    cache_hits_total.labels(cache_type='classification').inc()
+                    cached['cached'] = True
+
+                    # 캐시된 결과도 메트릭 기록
+                    duration = time.time() - start_time
+                    router_classification_duration_seconds.observe(duration)
+
+                    return cached
+                else:
+                    logger.debug(f"Classification 캐시 MISS: {issue.get('key')}")
+                    cache_misses_total.labels(cache_type='classification').inc()
+
             # LLM 프롬프트 구성
             prompt = self._build_classification_prompt(issue_type, summary, description)
             
@@ -77,9 +106,14 @@ class IntentClassifier:
             # 메트릭 기록
             duration = time.time() - start_time
             router_classification_duration_seconds.observe(duration)
-            
+
             logger.info(f"Classification result: {result.get('agent')} (confidence: {result.get('confidence')}, duration: {duration:.2f}s)")
-            
+
+            # 캐시 저장 (24시간)
+            if self._cache:
+                self._cache.set(cache_key, result, ttl=86400)
+
+            result['cached'] = False
             return result
             
         except Exception as e:

@@ -16,6 +16,7 @@ from .config import get_settings
 from .intent_classifier import IntentClassifier
 from .agent_registry import AgentRegistry
 from .models import WebhookPayload, RouterResponse
+from .cache import CacheManager
 from .metrics import (
     track_request_metrics,
     track_classification,
@@ -41,12 +42,24 @@ app = FastAPI(
 # 설정 로드
 settings = get_settings()
 
+# Redis 캐시 매니저 초기화
+cache_manager = CacheManager(
+    host=settings.redis_host,
+    port=settings.redis_port,
+    db=settings.redis_db,
+    password=settings.redis_password
+)
+
 # 컴포넌트 초기화
 intent_classifier = IntentClassifier(
     api_key=settings.openai_api_key,
-    model=settings.openai_model
+    model=settings.openai_model,
+    cache_manager=cache_manager
 )
-agent_registry = AgentRegistry(sdb_agent_url=settings.sdb_agent_url)
+agent_registry = AgentRegistry(
+    sdb_agent_url=settings.sdb_agent_url,
+    cache_manager=cache_manager
+)
 
 logger.info("Router Agent initialized successfully")
 

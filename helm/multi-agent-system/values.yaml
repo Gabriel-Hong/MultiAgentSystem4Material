@@ -46,6 +46,9 @@ routerAgent:
     classificationConfidenceThreshold: 0.5
     logLevel: "INFO"
     sdbAgentUrl: "http://sdb-agent-svc:5000"
+    redisHost: "redis"
+    redisPort: 6379
+    redisDB: 0
   
   healthcheck:
     enabled: true
@@ -102,6 +105,9 @@ sdbAgent:
     bitbucketRepository: "genw_new"
     openaiModel: "gpt-4-turbo-preview"
     testMode: false
+    redisHost: "redis"
+    redisPort: 6379
+    redisDB: 0
   
   healthcheck:
     enabled: true
@@ -195,6 +201,32 @@ monitoring:
     enabled: false  # 필요시 활성화
     slackWebhookUrl: ""  # Slack 알림용
 
+# Redis 캐싱 (Phase 2)
+redis:
+  enabled: true
+  image: redis:7.2-alpine
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  storage: 1Gi
+  storageClassName: ""  # 기본 storageClass 사용
+
+  # Redis 설정
+  maxMemory: 512mb
+  maxMemoryPolicy: allkeys-lru
+
+  # 환경변수 (Agent에서 사용)
+  env:
+    host: "redis"
+    port: 6379
+    db: 0
+    # password는 Secret으로 관리
 
 # Network Policy (보안 강화)
 networkPolicy:
