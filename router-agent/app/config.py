@@ -23,7 +23,13 @@ class Settings(BaseSettings):
     
     # Agent Registry 설정
     sdb_agent_url: str = "http://sdb-agent-svc:5000"
-    
+
+    # Redis 설정
+    redis_host: str = "redis"
+    redis_port: int = 6379
+    redis_db: int = 0
+    redis_password: Optional[str] = None
+
     class Config:
         env_file = ".env"
         case_sensitive = False

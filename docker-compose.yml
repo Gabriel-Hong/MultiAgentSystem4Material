@@ -21,6 +21,11 @@ services:
       
       # SDB Agent 연결
       - SDB_AGENT_URL=http://sdb-agent:5000
+
+      # Redis 설정
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
     depends_on:
       sdb-agent:
         condition: service_healthy
@@ -58,6 +63,11 @@ services:
       
       # 테스트 모드
       - TEST_MODE=${TEST_MODE:-false}
+
+      # Redis 설정
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
     volumes:
       # 개발 중 코드 변경사항 실시간 반영 (옵션)
       - ./sdb-agent/app:/app/app:ro
@@ -69,6 +79,25 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  # Redis - 캐싱 (Phase 2)
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis-cache
+    networks:
+      - agent-network
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - redis-data:/data
 
   # Cloudflare Tunnel (옵션: 외부 접근용)
   cloudflared:
@@ -88,3 +117,7 @@ networks:
   agent-network:
     driver: bridge
     name: multi-agent-network
+
+volumes:
+  redis-data:
+    name: redis-cache-data

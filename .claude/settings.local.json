@@ -2,7 +2,21 @@
   "permissions": {
     "allow": [
       "Bash(ccusage)",
-      "Bash(helm list:*)"
+      "Bash(helm list:*)",
+      "Bash(dir \"C:\\MIDAS\\10_Source\\GenerateSDBAgent_Applying_k8s\")",
+      "Bash(dir \"C:\\MIDAS\\10_Source\\GenerateSDBAgent_Applying_k8s\\helm\")",
+      "Bash(dir \"C:\\MIDAS\\10_Source\\GenerateSDBAgent_Applying_k8s\\router-agent\")",
+      "Bash(dir \"C:\\MIDAS\\10_Source\\GenerateSDBAgent_Applying_k8s\\sdb-agent\")",
+      "Bash(dir \"C:\\MIDAS\\10_Source\\GenerateSDBAgent_Applying_k8s\\helm\\multi-agent-system\\templates\")",
+      "Bash(dir \"C:\\MIDAS\\10_Source\\GenerateSDBAgent_Applying_k8s\\scripts\")",
+      "Bash(dir \"C:\\MIDAS\\10_Source\\GenerateSDBAgent_Applying_k8s\\router-agent\\app\")",
+      "Bash(dir \"C:\\MIDAS\\10_Source\\GenerateSDBAgent_Applying_k8s\\sdb-agent\\app\")",
+      "Bash(dir \"C:\\MIDAS\\10_Source\\GenerateSDBAgent_Applying_k8s\\helm\\multi-agent-system\\templates\\router-agent\")",
+      "Bash(dir \"C:\\MIDAS\\10_Source\\GenerateSDBAgent_Applying_k8s\\helm\\multi-agent-system\\templates\\monitoring\")",
+      "Bash(kubectl get:*)",
+      "Bash(dir:*)",
+      "Bash(nul)",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []

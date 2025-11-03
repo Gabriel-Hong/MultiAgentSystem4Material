@@ -77,6 +77,12 @@ spec:
             secretKeyRef:
               name: {{ .Values.secrets.existingSecret }}
               key: bitbucket-username
+        - name: REDIS_HOST
+          value: {{ .Values.sdbAgent.env.redisHost | quote }}
+        - name: REDIS_PORT
+          value: {{ .Values.sdbAgent.env.redisPort | quote }}
+        - name: REDIS_DB
+          value: {{ .Values.sdbAgent.env.redisDB | quote }}
         resources:
           {{- toYaml .Values.sdbAgent.resources | nindent 10 }}
         {{- if .Values.sdbAgent.healthcheck.enabled }}

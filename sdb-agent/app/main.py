@@ -14,6 +14,7 @@ try:
     from app.bitbucket_api import BitbucketAPI
     from app.llm_handler import LLMHandler
     from app.issue_processor import IssueProcessor
+    from app.cache_manager import CacheManager
     from app.metrics import (
         track_processing_time,
         get_metrics,
@@ -27,6 +28,7 @@ except ImportError:
     from bitbucket_api import BitbucketAPI
     from llm_handler import LLMHandler
     from issue_processor import IssueProcessor
+    from cache_manager import CacheManager
     from metrics import (
         track_processing_time,
         get_metrics,
@@ -53,9 +55,23 @@ BITBUCKET_ACCESS_TOKEN = os.getenv('BITBUCKET_ACCESS_TOKEN')
 REPOSITORY_SLUG = os.getenv('BITBUCKET_REPOSITORY', 'genw_new')
 WORKSPACE = os.getenv('BITBUCKET_WORKSPACE', 'mit_dev')
 
+# Redis 설정
+REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
+REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
+REDIS_DB = int(os.getenv('REDIS_DB', '0'))
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
+
 # 테스트 모드 설정 (환경 변수 TEST_MODE=true 또는 DEBUG 모드에서 활성화)
 TEST_MODE = os.getenv('TEST_MODE', 'false').lower() == 'true' or os.getenv('FLASK_ENV') == 'development'
 logger.info(f"테스트 모드 활성화: {TEST_MODE}")
+
+# Redis 캐시 매니저 초기화
+cache_manager = CacheManager(
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    db=REDIS_DB,
+    password=REDIS_PASSWORD
+)
 
 # API 클라이언트 초기화
 bitbucket_api = BitbucketAPI(
@@ -63,7 +79,8 @@ bitbucket_api = BitbucketAPI(
     username=BITBUCKET_USERNAME,
     access_token=BITBUCKET_ACCESS_TOKEN,
     workspace=WORKSPACE,
-    repository=REPOSITORY_SLUG
+    repository=REPOSITORY_SLUG,
+    cache_manager=cache_manager
 )
 
 # 토큰 유효성 검증
@@ -76,7 +93,7 @@ if BITBUCKET_ACCESS_TOKEN:
 else:
     logger.warning("BITBUCKET_ACCESS_TOKEN이 설정되지 않았습니다.")
 
-llm_handler = LLMHandler()
+llm_handler = LLMHandler(cache_manager=cache_manager)
 issue_processor = IssueProcessor(bitbucket_api, llm_handler)
 
 

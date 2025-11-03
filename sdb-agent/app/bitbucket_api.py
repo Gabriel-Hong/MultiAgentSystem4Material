@@ -17,14 +17,15 @@ logger = logging.getLogger(__name__)
 
 class BitbucketAPI:
     """Bitbucket REST API 클라이언트"""
-    
-    def __init__(self, url: str, username: str, access_token: str, workspace: str, repository: str):
+
+    def __init__(self, url: str, username: str, access_token: str, workspace: str, repository: str, cache_manager=None):
         self.base_url = url
         self.username = username  # 호환성을 위해 유지하지만 실제로는 사용하지 않음
         self.access_token = access_token
         self.workspace = workspace
         self.repository = repository
-        
+        self._cache = cache_manager
+
         # API 엔드포인트 설정
         self.api_base = f"{url}/2.0"
         self.repo_base = f"{self.api_base}/repositories/{workspace}/{repository}"
@@ -97,24 +98,38 @@ class BitbucketAPI:
             raise
     
     def validate_token(self):
-        """토큰 유효성 검증 (Bearer Token 우선)"""
+        """토큰 유효성 검증 (캐싱 적용 - TTL 5분)"""
+        # 캐시 조회
+        cache_key = f"bitbucket:repo:{self.workspace}:{self.repository}"
+        if self._cache:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                logger.info(f"토큰 검증 캐시 HIT")
+                return cached.get('valid', False), cached.get('repo_data')
+
         try:
             # Bearer Token으로 저장소 직접 접근 시도
             url = f"{self.repo_base}"
             response = self.make_bitbucket_request(url)
-            
+
             if response.status_code == 200:
                 try:
                     if response.content:
                         repo_data = response.json()
                         logger.info(f"토큰 검증 성공, 저장소: {repo_data.get('name', 'Unknown')}")
-                        return True, repo_data
+                        result = (True, repo_data)
                     else:
                         logger.warning("토큰 검증 응답이 비어있습니다.")
-                        return True, {"status": "valid"}
+                        result = (True, {"status": "valid"})
                 except requests.exceptions.JSONDecodeError as e:
                     logger.error(f"토큰 검증 응답 파싱 실패: {str(e)}")
-                    return True, {"status": "valid", "parse_error": str(e)}
+                    result = (True, {"status": "valid", "parse_error": str(e)})
+
+                # 캐시 저장 (5분)
+                if self._cache:
+                    self._cache.set(cache_key, {"valid": result[0], "repo_data": result[1]}, ttl=300)
+
+                return result
             else:
                 logger.error(f"토큰 검증 실패: {response.status_code}")
                 return False, None
@@ -169,7 +184,13 @@ class BitbucketAPI:
             response.raise_for_status()
             
             logger.info(f"브랜치 생성 완료: {branch_name}")
-            
+
+            # 캐시 무효화: 브랜치 목록 캐시 삭제
+            if self._cache:
+                pattern = f"bitbucket:branches:{self.workspace}:{self.repository}*"
+                self._cache.delete_pattern(pattern)
+                logger.debug(f"브랜치 목록 캐시 무효화: {pattern}")
+
             # 브랜치 생성 응답 파싱
             try:
                 if response.content:
@@ -197,7 +218,7 @@ class BitbucketAPI:
     
     def get_file_content(self, file_path: str, branch: str = "master") -> Optional[str]:
         """
-        파일 내용 가져오기 (텍스트 모드 - 하위 호환성)
+        파일 내용 가져오기 (캐싱 적용 - TTL 5분)
 
         Args:
             file_path: 파일 경로
@@ -206,6 +227,17 @@ class BitbucketAPI:
         Returns:
             파일 내용 (문자열) 또는 None
         """
+        # 캐시 조회
+        import hashlib
+        file_hash = hashlib.sha256(file_path.encode()).hexdigest()[:16]
+        cache_key = f"bitbucket:file:{self.workspace}:{self.repository}:{branch}:{file_hash}"
+
+        if self._cache:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                logger.info(f"파일 내용 캐시 HIT: {file_path}")
+                return cached
+
         try:
             url = f"{self.repo_base}/src/{branch}/{file_path}"
             response = self.make_bitbucket_request(url)
@@ -215,7 +247,13 @@ class BitbucketAPI:
                 return None
 
             response.raise_for_status()
-            return response.text
+            content = response.text
+
+            # 캐시 저장 (5분)
+            if self._cache and content:
+                self._cache.set(cache_key, content, ttl=300)
+
+            return content
 
         except Exception as e:
             logger.error(f"파일 읽기 실패: {str(e)}")
@@ -336,7 +374,15 @@ class BitbucketAPI:
             # 커밋 응답 파싱
             logger.info(f"파일 커밋 완료: {file_path} on {branch}")
             logger.info(f"커밋 응답 상태: {response.status_code}")
-            
+
+            # 캐시 무효화: 해당 파일 캐시 삭제
+            if self._cache:
+                import hashlib
+                file_hash = hashlib.sha256(file_path.encode()).hexdigest()[:16]
+                cache_key = f"bitbucket:file:{self.workspace}:{self.repository}:{branch}:{file_hash}"
+                self._cache.delete_pattern(cache_key + "*")
+                logger.debug(f"파일 캐시 무효화: {cache_key}")
+
             try:
                 if response.content:
                     return response.json()

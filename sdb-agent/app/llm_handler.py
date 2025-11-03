@@ -13,10 +13,11 @@ logger = logging.getLogger(__name__)
 
 class LLMHandler:
     """LLM을 사용한 코드 생성 및 수정 핸들러"""
-    
-    def __init__(self):
+
+    def __init__(self, cache_manager=None):
         self.api_key = os.getenv('OPENAI_API_KEY')
         self.client = None
+        self._cache = cache_manager
 
         if not self.api_key:
             logger.warning("OpenAI API 키가 설정되지 않았습니다. Mock 모드로 실행합니다.")
@@ -369,18 +370,38 @@ action 타입:
 라인 번호를 정확히 참조하고, old_content에는 라인 번호를 제외한 실제 코드만 포함하세요.
 """
 
-            # OpenAI 1.x 방식
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.1,
-                max_tokens=self.max_tokens
-            )
+            # 캐시 키 생성 (프롬프트 해시 기반)
+            import hashlib
+            prompt_combined = system_prompt + user_prompt
+            prompt_hash = hashlib.sha256(prompt_combined.encode()).hexdigest()[:16]
+            cache_key = f"llm:code:{prompt_hash}"
 
-            content = response.choices[0].message.content
+            # 캐시 조회
+            content = None
+            if self._cache:
+                cached = self._cache.get(cache_key)
+                if cached is not None:
+                    logger.info(f"LLM 응답 캐시 HIT (generate_code_diff)")
+                    content = cached
+
+            # OpenAI 1.x 방식
+            if content is None:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=self.max_tokens
+                )
+
+                content = response.choices[0].message.content
+
+                # 응답 캐싱 (24시간)
+                if self._cache and content:
+                    self._cache.set(cache_key, content, ttl=86400)
+                    logger.debug(f"LLM 응답 캐시 저장: {cache_key}")
 
             # JSON 응답 파싱
             try:
@@ -517,6 +538,19 @@ action 타입:
 위 요구사항에 맞는 새 파일의 전체 코드를 생성해주세요.
 """
             
+            # 캐시 키 생성 (프롬프트 해시 기반)
+            import hashlib
+            prompt_combined = system_prompt + user_prompt
+            prompt_hash = hashlib.sha256(prompt_combined.encode()).hexdigest()[:16]
+            cache_key = f"llm:code:{prompt_hash}"
+
+            # 캐시 조회
+            if self._cache:
+                cached = self._cache.get(cache_key)
+                if cached is not None:
+                    logger.info(f"LLM 응답 캐시 HIT (generate_new_file)")
+                    return cached
+
             # OpenAI 1.x 방식
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -527,6 +561,12 @@ action 타입:
                 temperature=0.3,
                 max_tokens=self.max_tokens
             )
+
+            # 응답 저장 및 캐싱 (24시간)
+            code_content = response.choices[0].message.content
+            if self._cache and code_content:
+                self._cache.set(cache_key, code_content, ttl=86400)
+                logger.debug(f"LLM 응답 캐시 저장: {cache_key}")
             
             new_code = self._extract_code_from_response(response.choices[0].message.content)
             logger.info(f"새 파일 생성 완료: {file_path}")
