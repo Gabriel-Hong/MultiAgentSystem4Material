@@ -16,7 +16,8 @@
       "Bash(kubectl get:*)",
       "Bash(dir:*)",
       "Bash(nul)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(tree:*)"
     ],
     "deny": [],
     "ask": []

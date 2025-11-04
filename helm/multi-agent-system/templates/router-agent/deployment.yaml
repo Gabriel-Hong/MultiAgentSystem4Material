@@ -51,11 +51,15 @@ spec:
         - name: SDB_AGENT_URL
           value: {{ .Values.routerAgent.env.sdbAgentUrl | quote }}
         - name: REDIS_HOST
-          value: {{ .Values.routerAgent.env.redisHost | quote }}
+          value: {{ .Values.global.redis.host | quote }}
         - name: REDIS_PORT
-          value: {{ .Values.routerAgent.env.redisPort | quote }}
+          value: {{ .Values.global.redis.port | quote }}
         - name: REDIS_DB
-          value: {{ .Values.routerAgent.env.redisDB | quote }}
+          value: {{ .Values.global.redis.db | quote }}
+        {{- if .Values.global.redis.password }}
+        - name: REDIS_PASSWORD
+          value: {{ .Values.global.redis.password | quote }}
+        {{- end }}
         resources:
           {{- toYaml .Values.routerAgent.resources | nindent 10 }}
         {{- if .Values.routerAgent.healthcheck.enabled }}

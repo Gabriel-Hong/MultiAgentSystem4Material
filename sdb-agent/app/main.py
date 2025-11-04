@@ -55,8 +55,8 @@ BITBUCKET_ACCESS_TOKEN = os.getenv('BITBUCKET_ACCESS_TOKEN')
 REPOSITORY_SLUG = os.getenv('BITBUCKET_REPOSITORY', 'genw_new')
 WORKSPACE = os.getenv('BITBUCKET_WORKSPACE', 'mit_dev')
 
-# Redis 설정
-REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
+# Redis 설정 (Kubernetes: 환경 변수로 주입, 로컬: .env 또는 기본값)
+REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')  # 로컬 개발 환경 기본값
 REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
 REDIS_DB = int(os.getenv('REDIS_DB', '0'))
 REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)

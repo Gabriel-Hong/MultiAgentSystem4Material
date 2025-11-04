@@ -4,6 +4,13 @@
 global:
   environment: local  # local, staging, production
   namespace: agent-system
+
+  # Redis 공통 설정 (모든 Agent가 공유)
+  redis:
+    host: "redis"
+    port: 6379
+    db: 0
+    password: ""  # 비어있으면 None
   
 # Container Registry 설정
 imageRegistry:
@@ -46,9 +53,7 @@ routerAgent:
     classificationConfidenceThreshold: 0.5
     logLevel: "INFO"
     sdbAgentUrl: "http://sdb-agent-svc:5000"
-    redisHost: "redis"
-    redisPort: 6379
-    redisDB: 0
+    # Redis 설정은 global.redis에서 참조
   
   healthcheck:
     enabled: true
@@ -105,9 +110,7 @@ sdbAgent:
     bitbucketRepository: "genw_new"
     openaiModel: "gpt-4-turbo-preview"
     testMode: false
-    redisHost: "redis"
-    redisPort: 6379
-    redisDB: 0
+    # Redis 설정은 global.redis에서 참조
   
   healthcheck:
     enabled: true
