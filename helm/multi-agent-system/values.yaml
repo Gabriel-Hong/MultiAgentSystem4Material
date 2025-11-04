@@ -11,7 +11,14 @@ global:
     port: 6379
     db: 0
     password: ""  # 비어있으면 None
-  
+
+  # PostgreSQL 공통 설정 (모든 Agent가 공유)
+  postgresql:
+    host: "postgresql"
+    port: 5432
+    database: "agent_system"
+    user: "agent_user"
+
 # Container Registry 설정
 imageRegistry:
   url: docker.io  # Minikube: docker.io, Production: your-registry
@@ -230,6 +237,23 @@ redis:
     port: 6379
     db: 0
     # password는 Secret으로 관리
+
+# PostgreSQL 이력 관리 (Phase 3)
+postgresql:
+  enabled: true
+  image: postgres:15-alpine
+  password: "postgres123"  # 개발환경 기본값, Production에서는 반드시 변경!
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  storage: 10Gi
+  storageClassName: ""  # Minikube: 기본 storageClass 사용
 
 # Network Policy (보안 강화)
 networkPolicy:

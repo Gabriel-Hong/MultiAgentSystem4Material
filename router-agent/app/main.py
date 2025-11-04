@@ -5,6 +5,7 @@ Multi-Agent 시스템의 Orchestrator
 
 import os
 import logging
+import time
 from datetime import datetime
 from typing import Dict, Any
 
@@ -17,6 +18,7 @@ from .intent_classifier import IntentClassifier
 from .agent_registry import AgentRegistry
 from .models import WebhookPayload, RouterResponse
 from .cache import CacheManager
+from .db_manager import DatabaseManager
 from .metrics import (
     track_request_metrics,
     track_classification,
@@ -48,6 +50,15 @@ cache_manager = CacheManager(
     port=settings.redis_port,
     db=settings.redis_db,
     password=settings.redis_password
+)
+
+# PostgreSQL DB 매니저 초기화
+db_manager = DatabaseManager(
+    host=settings.db_host,
+    port=settings.db_port,
+    database=settings.db_name,
+    user=settings.db_user,
+    password=settings.db_password
 )
 
 # 컴포넌트 초기화
@@ -139,35 +150,58 @@ async def list_agents():
 async def route_webhook(request: Request):
     """
     Jira Webhook을 받아서 적절한 Agent로 라우팅
-    
+
     프로세스:
     1. Webhook 페이로드 수신
     2. Intent Classification (LLM)
     3. 적절한 Agent 선택
     4. Agent 호출 및 결과 반환
     """
+    start_time = time.time()
+    request_id = None
+
     try:
         # 페이로드 파싱
         payload = await request.json()
-        
+
         if not payload:
             raise HTTPException(status_code=400, detail="Empty payload")
-        
+
         issue = payload.get('issue', {})
         issue_key = issue.get('key', 'UNKNOWN')
-        
+        webhook_event = payload.get('webhookEvent')
+
         logger.info(f"Received webhook for issue: {issue_key}")
         logger.debug(f"Payload: {payload}")
-        
+
+        # DB: 요청 이력 생성
+        request_id = db_manager.create_request(
+            issue_key=issue_key,
+            webhook_event=webhook_event,
+            payload=payload
+        )
+
         # 1. Intent Classification
         classification = intent_classifier.classify_issue(issue)
         agent_name = classification.get('agent')
         confidence = classification.get('confidence', 0.0)
-        
+        reasoning = classification.get('reasoning', '')
+        cached = classification.get('cached', False)
+
         # 신뢰도 메트릭 기록
         router_classification_confidence.observe(confidence)
-        
+
         logger.info(f"Classified as {agent_name} (confidence: {confidence:.2f})")
+
+        # DB: 분류 결과 저장
+        db_manager.create_classification(
+            request_id=request_id,
+            issue_key=issue_key,
+            classified_agent=agent_name,
+            confidence=confidence,
+            reasoning=reasoning,
+            cached=cached
+        )
         
         # 신뢰도가 너무 낮으면 경고
         if confidence < settings.classification_confidence_threshold:
@@ -218,15 +252,29 @@ async def route_webhook(request: Request):
                 return response.json()
         
         result = await call_agent()
-        
+
         logger.info(f"Agent {agent_name} completed: {result.get('status')}")
-        
+
+        # DB: 성능 메트릭 저장
+        total_duration = time.time() - start_time
+        db_manager.create_performance_metric(
+            request_id=request_id,
+            agent_name='router-agent',
+            metric_type='latency',
+            metric_value=total_duration,
+            metadata={'endpoint': 'webhook', 'agent': agent_name}
+        )
+
+        # DB: 요청 상태 업데이트
+        db_manager.update_request_status(request_id, 'completed')
+
         # 5. 결과 반환
         return JSONResponse({
             "status": "success",
             "issue_key": issue_key,
             "agent": agent_name,
             "classification": classification,
+            "request_id": request_id,
             "result": result
         })
     
@@ -246,6 +294,11 @@ async def route_webhook(request: Request):
     
     except Exception as e:
         logger.error(f"Routing error: {str(e)}", exc_info=True)
+
+        # DB: 실패 상태 업데이트
+        if request_id:
+            db_manager.update_request_status(request_id, 'failed')
+
         raise HTTPException(status_code=500, detail=str(e))
 
 

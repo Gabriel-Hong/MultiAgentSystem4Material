@@ -45,3 +45,6 @@ libclang==16.0.0
 
 # 인코딩 감지
 chardet==5.2.0
+
+# PostgreSQL (Phase 3)
+psycopg2-binary==2.9.9

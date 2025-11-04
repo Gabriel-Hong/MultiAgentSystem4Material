@@ -15,6 +15,7 @@ try:
     from app.llm_handler import LLMHandler
     from app.issue_processor import IssueProcessor
     from app.cache_manager import CacheManager
+    from app.db_manager import DatabaseManager
     from app.metrics import (
         track_processing_time,
         get_metrics,
@@ -29,6 +30,7 @@ except ImportError:
     from llm_handler import LLMHandler
     from issue_processor import IssueProcessor
     from cache_manager import CacheManager
+    from db_manager import DatabaseManager
     from metrics import (
         track_processing_time,
         get_metrics,
@@ -61,6 +63,13 @@ REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
 REDIS_DB = int(os.getenv('REDIS_DB', '0'))
 REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
 
+# PostgreSQL 설정 (Kubernetes: 환경 변수로 주입, 로컬: .env 또는 기본값)
+DB_HOST = os.getenv('DB_HOST', 'postgresql')
+DB_PORT = int(os.getenv('DB_PORT', '5432'))
+DB_NAME = os.getenv('DB_NAME', 'agent_system')
+DB_USER = os.getenv('DB_USER', 'agent_user')
+DB_PASSWORD = os.getenv('DB_PASSWORD', '')
+
 # 테스트 모드 설정 (환경 변수 TEST_MODE=true 또는 DEBUG 모드에서 활성화)
 TEST_MODE = os.getenv('TEST_MODE', 'false').lower() == 'true' or os.getenv('FLASK_ENV') == 'development'
 logger.info(f"테스트 모드 활성화: {TEST_MODE}")
@@ -71,6 +80,15 @@ cache_manager = CacheManager(
     port=REDIS_PORT,
     db=REDIS_DB,
     password=REDIS_PASSWORD
+)
+
+# PostgreSQL DB 매니저 초기화
+db_manager = DatabaseManager(
+    host=DB_HOST,
+    port=DB_PORT,
+    database=DB_NAME,
+    user=DB_USER,
+    password=DB_PASSWORD
 )
 
 # API 클라이언트 초기화
@@ -120,14 +138,14 @@ def metrics():
 def process_handler():
     """
     Router Agent용 표준 처리 엔드포인트
-    
+
     요청 형식:
     {
         "issue": {...},  # Jira 이슈 정보
         "classification": {...},  # Router의 분류 결과
         "metadata": {...}  # 추가 메타데이터
     }
-    
+
     응답 형식:
     {
         "status": "success" | "failed",
@@ -137,28 +155,59 @@ def process_handler():
         "version": "1.0.0"
     }
     """
+    import time
+    start_time = time.time()
     pr_status = 'failed'
+    request_id = None
+
     try:
         payload = request.get_json()
-        
+
         if not payload:
             logger.error("페이로드가 비어있습니다.")
             return jsonify({'error': '페이로드가 없습니다.'}), 400
-        
+
         # Router Agent로부터 전달된 데이터 추출
         issue = payload.get('issue', {})
         classification = payload.get('classification', {})
         metadata = payload.get('metadata', {})
-        
+
         issue_key = issue.get('key', 'UNKNOWN')
-        
+
+        # Router에서 전달된 request_id 추출 (있으면)
+        # 없으면 None으로 처리 (DB 외래키 제약조건은 nullable)
+
         logger.info(f"Processing issue from Router: {issue_key}")
         logger.info(f"Classification: {classification}")
         logger.info(f"Metadata: {metadata}")
-        
+
         # 기존 issue_processor 사용
         result = issue_processor.process_issue(issue)
-        
+
+        # DB: 코드 변경 이력 저장
+        modified_files = result.get('modified_files', [])
+        for file_info in modified_files:
+            db_manager.create_code_change(
+                request_id=request_id,
+                issue_key=issue_key,
+                file_path=file_info.get('path', ''),
+                change_type=file_info.get('change_type', 'modified'),
+                diff_content=file_info.get('diff'),
+                branch_name=result.get('branch_name'),
+                commit_hash=result.get('commit_hash'),
+                pr_url=result.get('pr_url')
+            )
+
+        # DB: 성능 메트릭 저장
+        processing_duration = time.time() - start_time
+        db_manager.create_performance_metric(
+            request_id=request_id,
+            agent_name='sdb-agent',
+            metric_type='latency',
+            metric_value=processing_duration,
+            metadata={'issue_key': issue_key}
+        )
+
         # PR 생성 성공/실패 메트릭 기록
         if result.get('status') == 'completed' and result.get('pr_url'):
             pr_status = 'success'
@@ -166,7 +215,7 @@ def process_handler():
         else:
             pr_status = 'failed'
             sdb_pr_created_total.labels(status='failed').inc()
-        
+
         return jsonify({
             'status': result.get('status', 'completed'),
             'issue_key': issue_key,
@@ -174,7 +223,7 @@ def process_handler():
             'agent': 'sdb-agent',
             'version': '1.0.0'
         }), 200
-        
+
     except Exception as e:
         # 에러 발생시 PR 실패 메트릭 기록
         sdb_pr_created_total.labels(status='failed').inc()

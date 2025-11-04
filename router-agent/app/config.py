@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     redis_db: int = 0
     redis_password: Optional[str] = None
 
+    # PostgreSQL 설정 (Kubernetes: 환경 변수로 주입, 로컬: .env 또는 기본값)
+    db_host: str = "postgresql"
+    db_port: int = 5432
+    db_name: str = "agent_system"
+    db_user: str = "agent_user"
+    db_password: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = False
