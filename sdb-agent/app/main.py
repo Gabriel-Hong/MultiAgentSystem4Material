@@ -11,6 +11,7 @@ from datetime import datetime
 
 # 로컬 모듈 임포트
 try:
+    from app.config import get_settings
     from app.bitbucket_api import BitbucketAPI
     from app.llm_handler import LLMHandler
     from app.issue_processor import IssueProcessor
@@ -26,6 +27,7 @@ except ImportError:
     import sys
     import os
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from config import get_settings
     from bitbucket_api import BitbucketAPI
     from llm_handler import LLMHandler
     from issue_processor import IssueProcessor
@@ -50,59 +52,42 @@ logger = logging.getLogger(__name__)
 # 현재 작업 디렉토리 로그 출력
 logger.info(f"Flask 애플리케이션 작업 디렉토리: {os.getcwd()}")
 
-# 환경 변수에서 설정 로드
-BITBUCKET_URL = os.getenv('BITBUCKET_URL', 'https://api.bitbucket.org')
-BITBUCKET_USERNAME = os.getenv('BITBUCKET_USERNAME', 'api_user')  # Bearer Token 사용시 실제로는 불필요
-BITBUCKET_ACCESS_TOKEN = os.getenv('BITBUCKET_ACCESS_TOKEN')
-REPOSITORY_SLUG = os.getenv('BITBUCKET_REPOSITORY', 'genw_new')
-WORKSPACE = os.getenv('BITBUCKET_WORKSPACE', 'mit_dev')
-
-# Redis 설정 (Kubernetes: 환경 변수로 주입, 로컬: .env 또는 기본값)
-REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')  # 로컬 개발 환경 기본값
-REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
-REDIS_DB = int(os.getenv('REDIS_DB', '0'))
-REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
-
-# PostgreSQL 설정 (Kubernetes: 환경 변수로 주입, 로컬: .env 또는 기본값)
-DB_HOST = os.getenv('DB_HOST', 'postgresql')
-DB_PORT = int(os.getenv('DB_PORT', '5432'))
-DB_NAME = os.getenv('DB_NAME', 'agent_system')
-DB_USER = os.getenv('DB_USER', 'agent_user')
-DB_PASSWORD = os.getenv('DB_PASSWORD', '')
+# 설정 로드
+settings = get_settings()
 
 # 테스트 모드 설정 (환경 변수 TEST_MODE=true 또는 DEBUG 모드에서 활성화)
-TEST_MODE = os.getenv('TEST_MODE', 'false').lower() == 'true' or os.getenv('FLASK_ENV') == 'development'
+TEST_MODE = settings.test_mode or settings.flask_env == 'development'
 logger.info(f"테스트 모드 활성화: {TEST_MODE}")
 
 # Redis 캐시 매니저 초기화
 cache_manager = CacheManager(
-    host=REDIS_HOST,
-    port=REDIS_PORT,
-    db=REDIS_DB,
-    password=REDIS_PASSWORD
+    host=settings.redis_host,
+    port=settings.redis_port,
+    db=settings.redis_db,
+    password=settings.redis_password
 )
 
 # PostgreSQL DB 매니저 초기화
 db_manager = DatabaseManager(
-    host=DB_HOST,
-    port=DB_PORT,
-    database=DB_NAME,
-    user=DB_USER,
-    password=DB_PASSWORD
+    host=settings.db_host,
+    port=settings.db_port,
+    database=settings.db_name,
+    user=settings.db_user,
+    password=settings.db_password
 )
 
 # API 클라이언트 초기화
 bitbucket_api = BitbucketAPI(
-    url=BITBUCKET_URL,
-    username=BITBUCKET_USERNAME,
-    access_token=BITBUCKET_ACCESS_TOKEN,
-    workspace=WORKSPACE,
-    repository=REPOSITORY_SLUG,
+    url=settings.bitbucket_url,
+    username=settings.bitbucket_username,
+    access_token=settings.bitbucket_access_token,
+    workspace=settings.bitbucket_workspace,
+    repository=settings.bitbucket_repository,
     cache_manager=cache_manager
 )
 
 # 토큰 유효성 검증
-if BITBUCKET_ACCESS_TOKEN:
+if settings.bitbucket_access_token:
     is_valid, repo_data = bitbucket_api.validate_token()
     if is_valid:
         logger.info(f"Bitbucket API 연결 성공! 저장소: {repo_data.get('name', 'Unknown')}")
@@ -316,5 +301,5 @@ def webhook_handler():
 
 if __name__ == '__main__':
     # Railway 프로덕션 환경용 포트 설정
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', settings.port))
     app.run(host='0.0.0.0', port=port, debug=False)
