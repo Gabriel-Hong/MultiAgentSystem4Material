@@ -87,6 +87,20 @@ spec:
         - name: REDIS_PASSWORD
           value: {{ .Values.global.redis.password | quote }}
         {{- end }}
+        # PostgreSQL 설정
+        - name: DB_HOST
+          value: {{ .Values.global.postgresql.host | quote }}
+        - name: DB_PORT
+          value: {{ .Values.global.postgresql.port | quote }}
+        - name: DB_NAME
+          value: {{ .Values.global.postgresql.database | quote }}
+        - name: DB_USER
+          value: {{ .Values.global.postgresql.user | quote }}
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-secret
+              key: POSTGRES_PASSWORD
         resources:
           {{- toYaml .Values.sdbAgent.resources | nindent 10 }}
         {{- if .Values.sdbAgent.healthcheck.enabled }}

@@ -17,7 +17,14 @@
       "Bash(dir:*)",
       "Bash(nul)",
       "Bash(mkdir:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(if [ -f /usr/local/bin/kubectl ])",
+      "Bash(then /usr/local/bin/kubectl version --client --short)",
+      "Bash(elif [ -f /usr/bin/kubectl ])",
+      "Bash(then /usr/bin/kubectl version --client --short)",
+      "Bash(else echo \"kubectl not found\")",
+      "Bash(fi)",
+      "Bash(dos2unix:*)"
     ],
     "deny": [],
     "ask": []
