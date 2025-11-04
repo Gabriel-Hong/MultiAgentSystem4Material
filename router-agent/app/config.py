@@ -24,8 +24,8 @@ class Settings(BaseSettings):
     # Agent Registry 설정
     sdb_agent_url: str = "http://sdb-agent-svc:5000"
 
-    # Redis 설정
-    redis_host: str = "redis"
+    # Redis 설정 (Kubernetes: 환경 변수로 주입, 로컬: .env 또는 기본값)
+    redis_host: str = "localhost"  # 로컬 개발 환경 기본값
     redis_port: int = 6379
     redis_db: int = 0
     redis_password: Optional[str] = None
