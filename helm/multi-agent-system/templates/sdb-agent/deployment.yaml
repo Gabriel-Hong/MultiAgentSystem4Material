@@ -65,6 +65,11 @@ spec:
             configMapKeyRef:
               name: agent-config
               key: OPENAI_MODEL
+        - name: OPENAI_MAX_TOKENS
+          valueFrom:
+            configMapKeyRef:
+              name: agent-config
+              key: OPENAI_MAX_TOKENS
         - name: LOG_LEVEL
           valueFrom:
             configMapKeyRef:

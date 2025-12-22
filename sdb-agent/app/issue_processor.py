@@ -132,15 +132,36 @@ class IssueProcessor:
 
         logger.info(f"총 {len(all_functions)}개 함수 발견")
 
-        # 타겟 함수와 매칭
+        # 타겟 함수와 매칭 (정확한 매칭 로직)
         relevant_functions = []
         for func in all_functions:
             func_name = func.get('name', '')
 
             for target in target_functions:
-                if target in func_name or func_name in target:
+                # 클래스명 제거 (CMatlDB::GetSteelList_ → GetSteelList_)
+                target_name = target.split('::')[-1] if '::' in target else target
+
+                # 정확한 매칭 조건:
+                matched = False
+
+                # 1. 정확히 일치
+                if func_name == target_name:
+                    matched = True
+
+                # 2. 타겟이 언더스코어로 끝나면 접두사 매칭
+                #    예: GetSteelList_ → GetSteelList_SP16_2017_tB3
+                elif target_name.endswith('_') and func_name.startswith(target_name):
+                    matched = True
+
+                # 3. 타겟이 언더스코어로 끝나지 않으면, 함수명이 타겟_로 시작하는 경우
+                #    예: MakeMatlData → MakeMatlData_MatlType (O)
+                #    예: MakeMatlData → GetRebarDataMap (X) - 포함만 되어서는 안됨
+                elif not target_name.endswith('_') and func_name.startswith(target_name + '_'):
+                    matched = True
+
+                if matched:
                     relevant_functions.append(func)
-                    logger.info(f"✅ 매칭 함수 발견: {func_name} (라인 {func['line_start']}-{func['line_end']})")
+                    logger.info(f"✅ 매칭 함수 발견: {func_name} ← target: {target} (라인 {func['line_start']}-{func['line_end']})")
                     break
 
         logger.info(f"관련 함수: {len(relevant_functions)}개 추출 완료")
@@ -395,8 +416,9 @@ class IssueProcessor:
             response = self.llm_handler.client.chat.completions.create(
                 model=self.llm_handler.model,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=self.llm_handler.max_tokens
+                # temperature 제거 (GPT-5는 기본값만 지원)
+                # GPT-5는 max_tokens 대신 max_completion_tokens 사용
+                max_completion_tokens=self.llm_handler.max_tokens
             )
 
             response_content = response.choices[0].message.content
@@ -545,7 +567,7 @@ class IssueProcessor:
                     # 관련 함수가 있으면 집중된 프롬프트, 없으면 전체 파일 프롬프트
                     if relevant_functions:
                         logger.info(f"✅ {len(relevant_functions)}개 관련 함수 발견 - 집중된 프롬프트 사용")
-                        
+
                         # test_material_db_modification.py와 동일한 방식
                         focused_content = self._build_focused_content(
                             relevant_functions, all_functions, current_content, file_config

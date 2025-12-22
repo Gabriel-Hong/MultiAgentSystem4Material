@@ -447,8 +447,9 @@ class LargeFileHandler:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.2,  # 일관성을 위해 낮은 온도
-                max_tokens=4000
+                # temperature 제거 (GPT-5는 기본값만 지원)
+                # GPT-5는 max_tokens 대신 max_completion_tokens 사용
+                max_completion_tokens=self.llm_handler.max_tokens
             )
 
             generated_code = response.choices[0].message.content
