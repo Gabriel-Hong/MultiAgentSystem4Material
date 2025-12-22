@@ -41,7 +41,9 @@ spec:
               name: {{ .Values.secrets.existingSecret }}
               key: openai-api-key
         - name: OPENAI_MODEL
-          value: {{ .Values.routerAgent.env.openaiModel | quote }}
+          value: {{ .Values.global.openai.model | quote }}
+        - name: OPENAI_MAX_TOKENS
+          value: {{ .Values.global.openai.maxTokens | quote }}
         - name: ROUTER_TIMEOUT
           value: {{ .Values.routerAgent.env.routerTimeout | quote }}
         - name: CLASSIFICATION_CONFIDENCE_THRESHOLD

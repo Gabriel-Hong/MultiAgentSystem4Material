@@ -96,7 +96,7 @@ class IntentClassifier:
                         "content": prompt
                     }
                 ],
-                temperature=0.1,
+                # temperature 제거 (GPT-5는 기본값만 지원)
                 response_format={"type": "json_object"}
             )
             
