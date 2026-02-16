@@ -1,675 +1,436 @@
-# Multi-Agent Development System
+# Jira-Driven Multi-Agent Automation System
 
-Jira 이슈 기반 자동 개발 Multi-Agent 시스템 (MoE 패턴)
+> Jira 이슈를 트리거로 C++ 소스코드를 자동 분석/수정하고 Bitbucket Pull Request까지 생성하는 LLM 기반 Multi-Agent 시스템
 
-## 개요
+![System Architecture](docs/images/Entire_Architecture.png)
 
-본 프로젝트는 **Mixture of Experts (MoE) 패턴**을 적용한 Multi-Agent 시스템으로, Jira 이슈를 받아 자동으로 코드를 개발하고 Pull Request를 생성합니다. Router Agent가 중앙에서 이슈를 분류하고, 각 Specialized Agent가 특정 작업을 수행합니다.
+---
 
-### 핵심 특징
+## What I Built
 
-- 🎯 **Intent Classification**: LLM 기반 자동 이슈 분류
-- 🔀 **Smart Routing**: 적절한 Agent로 자동 라우팅
-- 📦 **독립적인 Agent**: 각 Agent가 독립적으로 배포/확장 가능
-- ☸️ **Kubernetes Ready**: Helm Chart로 쉬운 배포 및 관리
-- 🔄 **Auto-scaling**: 트래픽에 따른 자동 스케일링
-- ⚡ **Redis Caching**: LLM 및 API 응답 캐싱으로 비용 절감 및 성능 향상
-- 💾 **PostgreSQL**: 모든 요청, 분류, 코드 변경 이력 영구 저장
-- 📊 **Monitoring**: Prometheus + Grafana 실시간 메트릭 수집 및 시각화
+이 프로젝트는 **건설 구조 해석 소프트웨어**의 Material Database 추가 업무를 자동화하기 위해 설계/개발한 시스템입니다.
 
-## 시스템 아키텍처
+기존에는 Jira 이슈가 생성되면 개발자가 직접 4개의 C++ 소스 파일을 열어 수십 곳을 수정하고, 수동으로 브랜치를 만들어 PR을 올리는 반복 작업이 필요했습니다. 이 시스템은 **Jira Webhook 수신부터 코드 수정, PR 생성까지 전 과정을 자동화**합니다.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        외부 시스템                           │
-│  ┌──────────┐     ┌──────────┐     ┌──────────┐           │
-│  │   Jira   │     │ Bitbucket│     │  Slack   │           │
-│  └────┬─────┘     └────┬─────┘     └────┬─────┘           │
-└───────┼────────────────┼────────────────┼─────────────────┘
-        │ Webhook        │ API            │ Notification
-        ↓                ↓                ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    Kubernetes Cluster                        │
-│                                                               │
-│  ┌────────────────────────────────────────────────────┐    │
-│  │  Ingress Controller (NGINX)                        │    │
-│  └──────────────────────┬─────────────────────────────┘    │
-│                         ↓                                    │
-│  ┌────────────────────────────────────────────────────┐    │
-│  │         Router Agent (Orchestrator)                │    │
-│  │  ┌──────────────────────────────────────────────┐ │    │
-│  │  │  - Intent Classification (LLM + Cache)       │ │    │
-│  │  │  - Agent Registry                            │ │    │
-│  │  │  - Load Balancing                            │ │    │
-│  │  │  - Request History Logging                   │ │    │
-│  │  └──────────────────────────────────────────────┘ │    │
-│  │  Replicas: 3 (Auto-scaling)                       │    │
-│  └───────┬──────────┬──────────────────────────────────┘    │
-│          │          │                                         │
-│          ↓          ↓                                         │
-│  ┌──────────┐ ┌──────────┐  (향후 추가)                     │
-│  │   SDB    │ │  Code    │ ┌──────────┐ ┌──────────┐      │
-│  │  Agent   │ │  Review  │ │   Test   │ │   Doc    │      │
-│  │          │ │  Agent   │ │   Gen    │ │  Agent   │      │
-│  │ Pod x 2  │ │ Pod x 2  │ │ Pod x 2  │ │ Pod x 1  │      │
-│  └────┬─────┘ └──────────┘ └──────────┘ └──────────┘      │
-│       │                                                       │
-│       └─────────┐                                             │
-│  ┌──────────────┴────────────────────────────────────────┐ │
-│  │               데이터 & 모니터링 레이어                │ │
-│  │                                                         │ │
-│  │  ┌──────────┐  ┌────────────┐  ┌────────────────┐   │ │
-│  │  │  Redis   │  │ PostgreSQL │  │  Prometheus    │   │ │
-│  │  │          │  │            │  │  + Grafana     │   │ │
-│  │  │ (캐싱)   │  │(이력 관리) │  │  (모니터링)    │   │ │
-│  │  └──────────┘  └────────────┘  └────────────────┘   │ │
-│  │  - LLM 응답    - 요청 이력      - 메트릭 수집      │ │
-│  │  - API 응답    - 분류 결과      - 실시간 대시보드  │ │
-│  │  - 분류 결과   - 코드 변경      - 알림             │ │
-│  └─────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-```
+### 핵심 설계 의사결정
 
-## 프로젝트 구조
+| 문제 | 해결 방식 |
+|------|-----------|
+| 17,000줄 이상의 C++ 파일을 LLM에 전달할 수 없음 | Clang AST로 관련 함수만 추출하여 토큰 50~80% 절감 |
+| C++ 파일이 EUC-KR 인코딩으로 LLM 수정 시 깨짐 | Binary I/O + 인코딩 감지/복원 파이프라인 구축 |
+| 동일 이슈에 대한 반복적 LLM 호출로 비용 증가 | Redis 기반 다계층 캐싱 (분류 24h, API 5min) |
+| Agent 추가 시 시스템 변경 범위가 큼 | MoE(Mixture of Experts) 패턴으로 Agent 독립 배포/확장 |
+| 분류 실패 시 잘못된 Agent로 라우팅 | 신뢰도 임계값(0.5) + Graceful Degradation |
+
+---
+
+## Tech Stack
+
+### Backend
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| Router Agent | **FastAPI** 0.109 + Uvicorn (ASGI) | Webhook 수신, Intent Classification, Agent 라우팅 |
+| SDB Agent | **Flask** 3.0 + Gunicorn (WSGI) | C++ 코드 수정, Bitbucket PR 생성 |
+| LLM | **OpenAI GPT-5** | 이슈 분류, Spec 변환, 코드 Diff 생성 |
+| C++ Parser | **libclang** 16.0 (Clang AST) | 함수 단위 코드 추출, 라인 넘버 매핑 |
+| Embedding | **sentence-transformers** (all-MiniLM-L6-v2) | 유사 함수 검색 (코사인 유사도) |
+
+### Data & Caching
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| Cache | **Redis** 7.2 | LLM 응답 캐싱 (24h), API 응답 캐싱 (5min) |
+| Database | **PostgreSQL** 15 | 요청 이력, 분류 결과, 코드 변경 이력, 성능 메트릭 |
+
+### Infrastructure
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| Container | **Docker** (Multi-stage, Python 3.12-slim) | 애플리케이션 컨테이너화 |
+| Orchestration | **Kubernetes** + **Helm** 3.x | 배포, 스케일링, 서비스 디스커버리 |
+| Auto-scaling | **HPA** (Horizontal Pod Autoscaler) | CPU/Memory 기반 자동 스케일링 |
+| Monitoring | **Prometheus** + **Grafana** | 메트릭 수집 및 실시간 대시보드 |
+| Ingress | **NGINX Ingress Controller** | 외부 트래픽 라우팅, TLS 종료 |
+
+### External Services
+| Service | Integration |
+|---------|------------|
+| **Jira** | Webhook으로 이슈 생성/수정 이벤트 수신 |
+| **Bitbucket** | REST API로 파일 조회, 브랜치 생성, 커밋, PR 생성 |
+| **OpenAI** | GPT-5 Chat Completion API (JSON 응답 모드) |
+
+---
+
+## System Architecture
+
+### 전체 처리 흐름
 
 ```
-GenerateSDBAgent_Applying_k8s/
-├── router-agent/              # Router Agent (Orchestrator)
-│   ├── app/                   # FastAPI 애플리케이션
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   └── README.md
-│
-├── sdb-agent/                 # SDB Agent (Specialized)
-│   ├── app/                   # Flask 애플리케이션
-│   ├── doc/                   # 상세 문서
-│   ├── test/                  # 테스트 코드
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   └── README.md
-│
-├── helm/                      # Helm Charts
-│   └── multi-agent-system/
-│       ├── Chart.yaml
-│       ├── values.yaml        # 기본 설정
-│       ├── values-local.yaml  # Minikube용
-│       ├── values-production.yaml  # 프로덕션용
-│       └── templates/         # K8s 리소스 템플릿
-│
-├── scripts/                   # 배포/관리 스크립트
-│   ├── minikube-setup.sh     # Minikube 초기 설정
-│   ├── build-images.sh       # Docker 이미지 빌드
-│   ├── deploy-local.sh       # Docker Compose 배포
-│   ├── deploy-k8s-local.sh   # Minikube 배포
-│   ├── deploy-k8s-cloud.sh   # 클라우드 배포
-│   └── health-check.sh       # 헬스 체크
-│
-├── docker-compose.yml         # 로컬 개발용
-└── env.example               # 환경 변수 예시
+Jira 이슈 생성
+    |
+    | Webhook (POST /webhook)
+    v
+ ┌─────────────────────────────────────────┐
+ │          Router Agent (FastAPI)          │
+ │                                         │
+ │  1. Webhook 페이로드 파싱               │
+ │  2. 요청 이력 저장 (PostgreSQL)         │
+ │  3. Intent Classification (GPT-5)       │
+ │     - Redis 캐시 확인 (24h TTL)         │
+ │     - Cache Miss → LLM 호출            │
+ │  4. 신뢰도 검증 (threshold: 0.5)       │
+ │  5. Agent 헬스체크 (캐싱 30s/10s)      │
+ │  6. Agent로 라우팅                      │
+ └────────────────┬────────────────────────┘
+                  |
+                  | POST /process
+                  v
+ ┌─────────────────────────────────────────┐
+ │           SDB Agent (Flask)             │
+ │                                         │
+ │  1. Jira ADF → Material Spec 변환      │
+ │  2. Bitbucket 브랜치 생성               │
+ │  3. 대상 C++ 파일 4개 순차 처리:       │
+ │     a. 파일 바이너리 조회               │
+ │     b. 인코딩 감지 (chardet + 휴리스틱)│
+ │     c. Clang AST로 관련 함수 추출      │
+ │     d. 구현 가이드 로딩                 │
+ │     e. LLM에 Focused Prompt 전송       │
+ │     f. JSON Diff 응답 파싱 및 적용     │
+ │     g. 원본 인코딩으로 재인코딩         │
+ │  4. 멀티파일 원자적 커밋                │
+ │  5. Pull Request 생성                   │
+ └─────────────────────────────────────────┘
+                  |
+                  v
+ Bitbucket PR 생성 완료 → Jira 이슈 처리 완료
 ```
 
-## 빠른 시작
+### 수정 대상 C++ 파일
 
-### 1. 로컬 개발 (Docker Compose)
+| 파일 | 역할 | 처리 방식 |
+|------|------|-----------|
+| `DBCodeDef.h` | Material 코드 상수 정의 (#define 매크로) | Pragma Region 파싱, 매크로 삽입 |
+| `MatlDB.cpp` | Material Enum 및 목록 등록 | Clang AST 함수 추출, Diff 생성 |
+| `DBLib.cpp` | Material 기본 DB 설정 | Clang AST 함수 추출, Diff 생성 |
+| `DgnDataCtrl.cpp` | 항복강도 계산 로직 | Clang AST 함수 추출, Diff 생성 |
 
-가장 빠르게 테스트할 수 있는 방법입니다.
+---
+
+## Key Technical Details
+
+### 1. Clang AST 기반 코드 추출
+
+17,000줄 이상의 C++ 파일을 LLM에 통째로 전달하면 토큰 한도를 초과합니다. Clang AST를 사용해 **이슈와 관련된 함수만 정확히 추출**합니다.
+
+```
+전체 파일 (17,000줄)
+    │
+    ├── Clang AST 파싱 (C++17, Windows 매크로 지원)
+    │   ├── FUNCTION_DECL 노드 탐색
+    │   ├── CXX_METHOD 노드 탐색
+    │   └── Content-based 라인 넘버 매핑
+    │
+    ├── 관련 함수 필터링 (키워드 매칭)
+    │
+    └── Focused Context 생성 (~500줄)
+        ├── 함수 시그니처 + 본문
+        ├── 3줄 상위 컨텍스트
+        └── 6자리 라인넘버 프리픽스 (예: "   420|")
+```
+
+Clang 미설치 환경에서는 정규식 기반 함수 추출로 Fallback
+
+### 2. 인코딩 보존 파이프라인
+
+레거시 C++ 파일의 EUC-KR/CP949 인코딩을 전체 파이프라인에서 보존합니다.
+
+```
+바이너리 읽기 → chardet 감지 → Decode → 텍스트 수정 → 원본 인코딩 Encode → 바이너리 커밋
+```
+
+- chardet 신뢰도 < 0.95 + 한국어 바이트 감지 시 CP949 강제 적용
+- ISO-8859-1 오탐 방지 로직
+- BOM (UTF-8/UTF-16) 자동 제거
+- Fallback 체인: 감지 인코딩 → UTF-8 → CP949 → EUC-KR → Latin-1
+
+### 3. LLM Diff 생성 전략
+
+LLM이 직접 코드를 수정하는 대신 **구조화된 JSON Diff를 생성**하도록 설계했습니다.
+
+```json
+{
+  "modifications": [
+    {
+      "line_start": 420,
+      "line_end": 425,
+      "action": "replace",
+      "old_content": "// 기존 코드 (라인 넘버 없이)",
+      "new_content": "// 수정된 코드 (들여쓰기 보존)",
+      "description": "변경 사유"
+    }
+  ],
+  "summary": "전체 변경 요약"
+}
+```
+
+- Diff는 **역순 적용** (라인 오프셋 오류 방지)
+- 원본 줄바꿈 스타일 (CRLF/LF) 보존
+- `old_content` 정확 매칭으로 잘못된 위치 수정 방지
+
+### 4. 다계층 Redis 캐싱
+
+| 대상 | TTL | 키 패턴 | 효과 |
+|------|-----|---------|------|
+| Intent Classification | 24시간 | `classification:{SHA256}` | OpenAI API 비용 최대 60% 절감 |
+| LLM 코드 생성 | 24시간 | `llm:code:{SHA256}` | 동일 프롬프트 재호출 방지 |
+| Bitbucket API | 5분 | `bitbucket:{type}:{ws}:{repo}:...` | Rate Limit 회피 |
+| Agent 헬스체크 | 30s/10s | `agent:health:{name}` | 불필요한 헬스체크 감소 |
+
+모든 캐시 연산은 **Graceful Degradation** 적용 - Redis 장애 시 캐싱 없이 정상 동작
+
+### 5. PostgreSQL 이력 관리
+
+4개 테이블로 전체 파이프라인 이력을 영구 저장합니다.
+
+| 테이블 | 저장 내용 |
+|--------|-----------|
+| `request_history` | Webhook 요청 전체 페이로드, 처리 상태 |
+| `classification_history` | 분류된 Agent, 신뢰도, 추론 근거, 캐시 여부 |
+| `code_change_history` | 수정 파일, 변경 유형, Diff, 브랜치, PR URL |
+| `performance_metrics` | Agent별 처리 시간, LLM 토큰 사용량 |
+
+---
+
+## Observability
+
+### Prometheus 메트릭
+
+**Router Agent**:
+- `router_requests_total` - 요청 수 (엔드포인트별, 성공/실패)
+- `router_classification_duration_seconds` - 분류 소요 시간 (히스토그램)
+- `router_classification_confidence` - 분류 신뢰도 분포
+- `router_agent_call_duration_seconds` - Agent 호출 시간
+- `cache_hits_total` / `cache_misses_total` - 캐시 히트율
+
+**SDB Agent**:
+- `sdb_processing_duration_seconds` - 전체 처리 시간
+- `sdb_bitbucket_api_calls_total` - Bitbucket API 호출 수
+- `sdb_llm_requests_total` / `sdb_llm_tokens_used_total` - LLM 사용량
+- `sdb_pr_created_total` - PR 생성 성공/실패
+- `sdb_files_modified_total` - 파일 수정 수
+
+### Grafana 대시보드
+- 전체 요청률 및 응답 시간 추이
+- Agent별 처리 시간 분포
+- 캐시 히트율 그래프
+- LLM 토큰 사용량 (비용 추적)
+- 에러율 및 상태 코드 분포
+
+---
+
+## Deployment
+
+3가지 배포 환경을 지원합니다.
+
+### 1. Docker Compose (로컬 개발)
 
 ```bash
-# 1. 환경 변수 설정
-cp env.example .env
-# .env 파일을 편집하여 실제 값 입력
-
-# 2. Docker 이미지 빌드
+cp env.example .env     # 환경 변수 설정
 bash scripts/build-images.sh
-
-# 3. 실행
 bash scripts/deploy-local.sh
 
-# 4. 접근
+# 테스트
 curl http://localhost:5000/health
 curl http://localhost:5000/agents
 ```
 
-### 2. Kubernetes (Minikube)
-
-로컬에서 Kubernetes 환경을 테스트합니다.
+### 2. Kubernetes - Minikube (로컬 K8s)
 
 ```bash
-# 1. Minikube 설치 및 시작
 bash scripts/minikube-setup.sh
-
-# 2. Docker 이미지 빌드 (Minikube 환경에서)
 USE_MINIKUBE=true bash scripts/build-images.sh
-
-# 3. Kubernetes 배포
 bash scripts/deploy-k8s-local.sh
 
-# 4. 접근 (Port Forward)
 kubectl port-forward svc/router-agent-svc 5000:5000 -n agent-system
-
-# 또는 Ingress 사용
-# /etc/hosts에 추가: 127.0.0.1 agents.local
-# minikube tunnel
-# http://agents.local
 ```
 
-### 3. 클라우드 배포 (GKE/EKS/AKS)
-
-프로덕션 환경에 배포합니다. `.env` 파일이 있으면 **Secret이 자동으로 생성**됩니다!
+### 3. Kubernetes - Cloud (Production)
 
 ```bash
-# 1. .env 파일 준비
-cp env.example .env
-vim .env  # 실제 값 입력 (⚠️ Bitbucket App Password 필수!)
+cp env.example .env && vim .env
 
-# 2. kubectl 컨텍스트 설정
-kubectl config use-context your-cluster
-
-# 3. Container Registry 설정
 export REGISTRY="your-registry.azurecr.io"
 export VERSION="1.0.0"
 
-# 4. 이미지 빌드 및 푸시
 PUSH_IMAGES=1 bash scripts/build-images.sh $VERSION $REGISTRY
-
-# 5. Helm 배포 (Secret 자동 생성!)
 REGISTRY=$REGISTRY VERSION=$VERSION bash scripts/deploy-k8s-cloud.sh
 ```
 
-**자동화 특징:**
-- ✅ `.env` 파일에서 Secret 자동 생성
-- ✅ Bitbucket 토큰 타입 자동 검증 (ATCTT vs ATATT)
-- ✅ 배포 전 토큰 에러 방지
+### 환경별 리소스 설정
 
-**상세 가이드:**
-- [클라우드 Kubernetes 배포 가이드](./deploy/kubernetes-cloud-deploy.md)
-- [Secret 자동화 가이드](./KUBERNETES_SECRET_AUTOMATION.md)
+| 항목 | Local (Minikube) | Production (Cloud) |
+|------|------------------|-------------------|
+| Router 복제본 | 1 | 3 (HPA: 3~20) |
+| SDB Agent 복제본 | 1 | 2 (HPA: 2~20) |
+| Router CPU/Mem | 100m/128Mi | 250m/256Mi |
+| SDB Agent CPU/Mem | 250m/256Mi | 500m/512Mi |
+| TLS | 비활성화 | Let's Encrypt |
+| 모니터링 | 비활성화 | Prometheus + Grafana |
+| Network Policy | 비활성화 | 활성화 |
 
-## 사전 준비사항
+---
 
-### 로컬 개발 환경
+## Project Structure
 
-- **Docker Desktop** (Windows/Mac) 또는 Docker Engine (Linux)
-- **Docker Compose**
-
-### Kubernetes 환경
-
-#### Minikube (로컬)
-```bash
-# Windows (Chocolatey)
-choco install minikube kubernetes-cli kubernetes-helm
-
-# macOS (Homebrew)
-brew install minikube kubectl helm
-
-# Linux
-curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-sudo install minikube-linux-amd64 /usr/local/bin/minikube
+```
+GenerateSDBAgent/
+├── router-agent/                    # Router Agent (Orchestrator)
+│   ├── app/
+│   │   ├── main.py                  # FastAPI 앱, Webhook/Health/Metrics 엔드포인트
+│   │   ├── intent_classifier.py     # GPT-4 기반 이슈 분류 + Redis 캐싱
+│   │   ├── agent_registry.py        # Agent 등록/조회/헬스체크
+│   │   ├── cache.py                 # Redis CacheManager (Graceful Degradation)
+│   │   ├── db_manager.py            # PostgreSQL 이력 저장 (Connection Pool)
+│   │   ├── config.py                # Pydantic Settings (환경 변수)
+│   │   ├── metrics.py               # Prometheus 메트릭 정의 및 데코레이터
+│   │   └── models.py                # Pydantic 요청/응답 모델
+│   ├── Dockerfile
+│   └── requirements.txt
+│
+├── sdb-agent/                       # SDB Agent (Specialized)
+│   ├── app/
+│   │   ├── main.py                  # Flask 앱, /process /webhook 엔드포인트
+│   │   ├── issue_processor.py       # 전체 처리 파이프라인 오케스트레이션
+│   │   ├── bitbucket_api.py         # Bitbucket REST API (파일/브랜치/커밋/PR)
+│   │   ├── llm_handler.py           # OpenAI GPT-4 코드 Diff 생성 및 적용
+│   │   ├── code_chunker.py          # Clang AST 함수 추출 + Regex Fallback
+│   │   ├── large_file_handler.py    # 대용량 파일 분할 처리 전략
+│   │   ├── encoding_handler.py      # EUC-KR/CP949 인코딩 감지 및 보존
+│   │   ├── prompt_builder.py        # Focused/Full-file 프롬프트 빌더
+│   │   ├── embedding_search.py      # sentence-transformers 유사도 검색
+│   │   ├── cache_manager.py         # Bitbucket/LLM 응답 캐싱 데코레이터
+│   │   ├── db_manager.py            # 코드 변경/성능 메트릭 PostgreSQL 저장
+│   │   ├── target_files_config.py   # 수정 대상 파일 및 섹션 설정
+│   │   ├── config.py                # Pydantic Settings
+│   │   └── metrics.py               # Prometheus 메트릭
+│   ├── doc/
+│   │   ├── guides/                  # 파일별 구현 가이드 (LLM 프롬프트에 포함)
+│   │   │   ├── DBCodeDef_guide.md
+│   │   │   ├── MatlDB_guide.md
+│   │   │   ├── DBLib_guide.md
+│   │   │   └── DgnDataCtrl_guide.md
+│   │   ├── Spec_File.md             # Material Spec 변환 템플릿
+│   │   └── ...                      # 기타 기술 문서
+│   ├── test/                        # 테스트 코드
+│   ├── few_shot_examples.json       # LLM Few-shot 학습 예시
+│   ├── Dockerfile
+│   └── requirements.txt
+│
+├── helm/multi-agent-system/         # Helm Charts
+│   ├── Chart.yaml                   # Chart 메타데이터 (v1.0.0)
+│   ├── values.yaml                  # 기본 설정값
+│   ├── values-local.yaml            # Minikube 오버라이드
+│   ├── values-production.yaml       # 프로덕션 오버라이드
+│   └── templates/
+│       ├── router-agent/            # Deployment, HPA, Service
+│       ├── sdb-agent/               # Deployment, HPA, Service
+│       ├── redis/                   # Deployment, PVC, Service, ConfigMap
+│       ├── postgresql/              # StatefulSet, PVC, Service, Secret, InitScript
+│       ├── monitoring/
+│       │   ├── prometheus/          # Deployment, ConfigMap, RBAC, PVC
+│       │   └── grafana/             # Deployment, Datasource, Dashboard, PVC
+│       ├── configmap.yaml
+│       ├── secrets.yaml
+│       └── ingress.yaml
+│
+├── scripts/                         # 배포 자동화 스크립트
+│   ├── build-images.sh              # Docker 이미지 빌드 (Minikube/Registry 지원)
+│   ├── deploy-local.sh              # Docker Compose 배포
+│   ├── deploy-k8s-local.sh          # Minikube 배포
+│   ├── deploy-k8s-cloud.sh          # 클라우드 K8s 배포
+│   ├── create-secrets-from-env.sh   # .env → K8s Secret 자동 생성
+│   ├── minikube-setup.sh            # Minikube 초기 설정
+│   ├── health-check.sh              # 전체 시스템 헬스체크
+│   └── ...
+│
+├── test/                            # 통합 테스트
+├── docker-compose.yml               # 로컬 개발용 Compose
+├── docs/                            # 프로젝트 문서
+│   ├── images/                      # 아키텍처 다이어그램
+│   ├── enhancement/                 # 고도화 가이드
+│   ├── kubernetes/                  # K8s 배포 가이드
+│   ├── monitoring/                  # 모니터링 가이드
+│   ├── redis/                       # Redis 설정 가이드
+│   ├── postgresql/                  # PostgreSQL 가이드
+│   └── configuration/              # 환경 변수 설정 가이드
+└── env.example                      # 환경 변수 예시
 ```
 
-#### 클라우드
-- **GKE**: Google Kubernetes Engine
-- **EKS**: Amazon Elastic Kubernetes Service
-- **AKS**: Azure Kubernetes Service
+---
 
-각 클라우드 제공자의 CLI 도구 설치:
-- GKE: `gcloud`
-- EKS: `aws` + `eksctl`
-- AKS: `az`
+## Design Patterns & Architecture Decisions
 
-### 필수 환경 변수
+| 패턴 | 적용 위치 | 이유 |
+|------|-----------|------|
+| **MoE (Mixture of Experts)** | 전체 시스템 | Agent별 독립 배포/스케일링, 새 Agent 추가 시 기존 코드 변경 최소화 |
+| **Graceful Degradation** | Redis, PostgreSQL | 캐시/DB 장애 시에도 핵심 기능(코드 수정, PR 생성) 정상 동작 |
+| **Decorator Pattern** | Prometheus 메트릭 | 비즈니스 로직과 메트릭 수집 분리, 비침투적 계측 |
+| **Connection Pool** | PostgreSQL | ThreadedConnectionPool(1~10)으로 동시 요청 처리 |
+| **Binary I/O Pipeline** | Bitbucket 파일 처리 | 인코딩 변환 없이 원본 바이트 보존 |
+| **Reverse Diff Application** | LLM 코드 수정 | 라인 오프셋 누적 오류 방지 |
+| **Differentiated TTL** | Agent 헬스체크 캐시 | 정상(30s)/비정상(10s)으로 장애 복구 감지 속도 차별화 |
+| **Stateless Service** | 모든 Agent | 수평 확장 가능, HPA와 호환 |
+
+---
+
+## Environment Variables
 
 ```bash
-# OpenAI 설정
+# Required
 OPENAI_API_KEY=sk-your-api-key
-
-# Bitbucket 설정
 BITBUCKET_ACCESS_TOKEN=your-token
 BITBUCKET_WORKSPACE=your-workspace
 BITBUCKET_REPOSITORY=your-repository
 
-# Redis 설정 (선택 - 기본값 사용 가능)
-REDIS_HOST=redis
+# Optional (defaults provided)
+OPENAI_MODEL=gpt-5                         # LLM 모델
+CLASSIFICATION_CONFIDENCE_THRESHOLD=0.5    # 분류 신뢰도 임계값
+REDIS_HOST=redis                           # Redis 호스트
 REDIS_PORT=6379
-REDIS_DB=0
-REDIS_PASSWORD=  # 비워두면 인증 없음
-
-# PostgreSQL 설정 (선택 - 기본값 사용 가능)
-DB_HOST=postgresql
+DB_HOST=postgresql                         # PostgreSQL 호스트
 DB_PORT=5432
 DB_NAME=agent_system
 DB_USER=agent_user
 DB_PASSWORD=postgres123
 ```
 
-## Agent 상세
+---
 
-### Router Agent
+## Version History
 
-**역할**: 중앙 Orchestrator, Jira Webhook 수신 및 라우팅
-
-**기능**:
-- Intent Classification (LLM 기반)
-- Agent 선택 및 라우팅
-- 로드 밸런싱
-- 결과 수집 및 반환
-
-**엔드포인트**:
-- `GET /health`: 헬스 체크
-- `GET /agents`: Agent 목록
-- `POST /webhook`: Jira Webhook 수신
-- `POST /test-classification`: 분류 테스트
-
-**자세한 내용**: [router-agent/README.md](router-agent/README.md)
-
-### SDB Agent
-
-**역할**: SDB 개발 및 Material DB 추가 자동화
-
-**기능**:
-- C++ 소스코드 자동 수정
-- Material DB 추가
-- Bitbucket PR 자동 생성
-- 인코딩 보존 (EUC-KR 등)
-
-**엔드포인트**:
-- `GET /health`: 헬스 체크
-- `GET /capabilities`: 기능 목록
-- `POST /process`: 표준 처리 엔드포인트
-- `POST /webhook`: 직접 Webhook (레거시)
-
-**자세한 내용**: [sdb-agent/README.md](sdb-agent/README.md)
-
-## Helm Chart 사용법
-
-### 기본 설치
-
-```bash
-helm install multi-agent-system ./helm/multi-agent-system \
-  --namespace agent-system \
-  --create-namespace
-```
-
-### 환경별 설치
-
-```bash
-# Minikube
-helm install multi-agent-system ./helm/multi-agent-system \
-  -f ./helm/multi-agent-system/values-local.yaml \
-  --namespace agent-system
-
-# Production
-helm install multi-agent-system ./helm/multi-agent-system \
-  -f ./helm/multi-agent-system/values-production.yaml \
-  --namespace agent-system
-```
-
-### 업그레이드
-
-```bash
-helm upgrade multi-agent-system ./helm/multi-agent-system \
-  -f ./helm/multi-agent-system/values-local.yaml \
-  --namespace agent-system
-```
-
-### 삭제
-
-```bash
-helm uninstall multi-agent-system --namespace agent-system
-```
-
-## 시스템 구성 요소
-
-### Redis (캐싱)
-
-**용도**: LLM 및 API 응답 캐싱으로 비용 절감 및 성능 향상
-
-**캐싱 대상**:
-- **Intent Classification 결과** (TTL: 24시간)
-  - 동일한 이슈 유형에 대한 반복적인 LLM 호출 방지
-  - 분류 신뢰도 및 추론 근거 캐싱
-- **Bitbucket API 응답** (TTL: 5분)
-  - 파일 조회, 브랜치 목록 등 반복 API 호출 감소
-  - Rate Limit 회피
-- **LLM 코드 생성 결과** (TTL: 24시간)
-  - 유사한 프롬프트에 대한 LLM 응답 재사용
-  - OpenAI API 비용 절감
-
-**설정**:
-- **이미지**: `redis:7.2-alpine`
-- **메모리**: 512MB (LRU 정책)
-- **스토리지**: 1Gi PVC (영구 데이터)
-- **리소스**: CPU 250m-500m, Memory 256Mi-512Mi
-
-**접근**:
-```bash
-# Kubernetes에서 Redis CLI 접속
-kubectl exec -it deployment/redis -n agent-system -- redis-cli
-
-# 캐시 통계 확인
-kubectl exec -it deployment/redis -n agent-system -- redis-cli INFO stats
-
-# 캐시 초기화 (선택)
-bash scripts/clear-cache.sh
-```
-
-### PostgreSQL (이력 관리)
-
-**용도**: 모든 요청, 분류, 코드 변경 이력 영구 저장
-
-**데이터베이스 스키마**:
-1. **request_history** - Webhook 요청 이력
-   - 이슈 키, Webhook 이벤트, 페이로드, 상태
-2. **classification_history** - Intent Classification 결과
-   - 분류된 Agent, 신뢰도, 추론 근거, 캐시 여부
-3. **code_change_history** - 코드 변경 이력
-   - 파일 경로, 변경 유형, Diff, 브랜치, 커밋 해시, PR URL
-4. **performance_metrics** - 성능 메트릭
-   - Agent별 처리 시간, LLM 토큰 사용량, 메타데이터
-
-**설정**:
-- **이미지**: `postgres:15-alpine`
-- **배포 방식**: StatefulSet (안정적인 네트워크 ID 및 영구 스토리지)
-- **스토리지**: 10Gi PVC
-- **리소스**: CPU 500m-1000m, Memory 512Mi-1Gi
-
-**접근**:
-```bash
-# PostgreSQL 접속
-kubectl exec -it postgresql-0 -n agent-system -- psql -U agent_user -d agent_system
-
-# 요청 이력 조회
-SELECT issue_key, status, created_at FROM request_history ORDER BY created_at DESC LIMIT 10;
-
-# 분류 결과 조회
-SELECT issue_key, classified_agent, confidence, cached FROM classification_history ORDER BY created_at DESC LIMIT 10;
-
-# 성능 메트릭 조회
-SELECT agent_name, metric_type, AVG(metric_value) FROM performance_metrics GROUP BY agent_name, metric_type;
-```
-
-### Monitoring (Prometheus + Grafana)
-
-**Prometheus** - 메트릭 수집 및 저장
-
-**수집 메트릭**:
-- **Router Agent**:
-  - 요청 수 (`router_requests_total`)
-  - 분류 소요 시간 (`router_classification_duration_seconds`)
-  - Agent 호출 시간 (`router_agent_call_duration_seconds`)
-  - 캐시 히트/미스 (`cache_hits_total`, `cache_misses_total`)
-  - 분류 신뢰도 분포 (`router_classification_confidence`)
-- **SDB Agent**:
-  - 처리 시간 (`sdb_processing_duration_seconds`)
-  - Bitbucket API 호출 수 (`sdb_bitbucket_api_calls_total`)
-  - LLM 요청 수 및 토큰 사용량 (`sdb_llm_requests_total`, `sdb_llm_tokens_used_total`)
-  - PR 생성 성공/실패 (`sdb_pr_created_total`)
-  - 파일 수정 수 (`sdb_files_modified_total`)
-
-**설정**:
-- **데이터 보관**: 30일
-- **스토리지**: 20Gi PVC
-- **리소스**: CPU 500m-1000m, Memory 1Gi-2Gi
-
-**접근**:
-```bash
-# Prometheus UI (Port Forward)
-kubectl port-forward svc/prometheus -n agent-system 9090:9090
-# 브라우저에서 http://localhost:9090
-
-# 또는 Ingress 사용 (minikube tunnel 실행 후)
-# http://agents.local/prometheus
-```
-
-**Grafana** - 메트릭 시각화 및 대시보드
-
-**대시보드**:
-- Multi-Agent System Overview (자동 프로비저닝)
-  - 전체 요청률 및 응답 시간
-  - Agent별 처리 시간 분포
-  - 에러율 및 상태 코드
-  - 캐시 히트율
-  - LLM 토큰 사용량 추이
-
-**설정**:
-- **기본 로그인**: admin / admin123 (개발 환경)
-- **Datasource**: Prometheus 자동 연결
-- **스토리지**: 5Gi PVC
-
-**접근**:
-```bash
-# Grafana UI (Port Forward)
-kubectl port-forward svc/grafana -n agent-system 3000:3000
-# 브라우저에서 http://localhost:3000
-
-# 또는 Ingress 사용 (minikube tunnel 실행 후)
-# http://agents.local/grafana
-```
-
-## 모니터링 및 운영
-
-### 로그 확인
-
-```bash
-# Kubernetes
-kubectl logs -f deployment/router-agent -n agent-system
-kubectl logs -f deployment/sdb-agent -n agent-system
-
-# Docker Compose
-docker-compose logs -f router-agent
-docker-compose logs -f sdb-agent
-```
-
-### 상태 확인
-
-```bash
-# Kubernetes
-kubectl get all -n agent-system
-kubectl get hpa -n agent-system
-
-# Docker Compose
-docker-compose ps
-```
-
-### 헬스 체크
-
-```bash
-bash scripts/health-check.sh
-```
-
-## Minikube vs 클라우드
-
-### Minikube 장점
-✅ 로컬 개발 및 테스트
-✅ 비용 없음
-✅ 빠른 반복 개발
-✅ Kubernetes 학습
-
-### Minikube 제한사항
-❌ 단일 노드 (멀티 노드 시뮬레이션 제한적)
-❌ 실제 로드 밸런싱 불가
-❌ 프로덕션 스케일 테스트 불가
-❌ 실제 클라우드 스토리지 사용 불가
-
-### 클라우드 전환
-Minikube에서 개발한 Helm Chart와 YAML 파일을 **거의 그대로** 클라우드에 사용 가능합니다.
-
-**변경이 필요한 부분**:
-- Container Registry URL
-- Ingress 설정 (ALB, Cloud Load Balancer 등)
-- Storage Class
-- Node Selector / Affinity (선택)
-
-Helm의 `values-local.yaml`과 `values-production.yaml`로 쉽게 전환 가능합니다.
-
-## 트러블슈팅
-
-### Docker Compose
-```bash
-# 로그 확인
-docker-compose logs
-
-# 재시작
-docker-compose restart
-
-# 완전 재구성
-docker-compose down
-docker-compose up --build
-```
-
-### Kubernetes
-```bash
-# Pod 상태 확인
-kubectl get pods -n agent-system
-kubectl describe pod <pod-name> -n agent-system
-
-# 로그 확인
-kubectl logs -f <pod-name> -n agent-system
-
-# 이벤트 확인
-kubectl get events -n agent-system --sort-by='.lastTimestamp'
-
-# Secret 확인
-kubectl get secrets -n agent-system
-```
-
-### Minikube
-```bash
-# 재시작
-minikube stop
-minikube start
-
-# 완전 재구성
-minikube delete
-bash scripts/minikube-setup.sh
-
-# 이미지 pull 실패 시
-eval $(minikube docker-env)
-bash scripts/build-images.sh
-```
-
-## 고도화 내역
-
-### v1.1.0 - 데이터 & 모니터링 레이어 추가 (2025-11-04)
-
-프로젝트에 **Redis 캐싱**, **PostgreSQL 이력 관리**, **Prometheus + Grafana 모니터링**을 적용하여 프로덕션 수준의 시스템으로 고도화했습니다.
-
-#### Redis 캐싱 적용 (Commit bc60151, 4afeec1)
-**목적**: LLM 및 API 호출 비용 절감, 응답 속도 향상
-
-- **Intent Classification 캐싱**: 동일 이슈 유형 재분류 시 LLM 호출 생략 (TTL: 24시간)
-- **Bitbucket API 캐싱**: 파일 조회, 브랜치 목록 등 반복 호출 감소 (TTL: 5분)
-- **LLM 응답 캐싱**: 코드 생성 결과 재사용으로 OpenAI 비용 절감 (TTL: 24시간)
-- **캐시 정책**: 512MB maxmemory, LRU (Least Recently Used) 제거 정책
-- **메트릭 추적**: Prometheus로 캐시 히트율 모니터링
-
-**효과**:
-- OpenAI API 호출 비용 최대 60% 절감
-- Bitbucket API Rate Limit 회피
-- 평균 응답 시간 40% 개선
-
-#### PostgreSQL 이력 관리 (Commit e4c2aec)
-**목적**: 감사 추적, 성능 분석, 문제 디버깅
-
-- **4개 테이블 설계**:
-  - `request_history`: 모든 Webhook 요청 로깅
-  - `classification_history`: Intent Classification 결과 및 신뢰도 저장
-  - `code_change_history`: 코드 수정 이력 (Diff, PR URL 등) 저장
-  - `performance_metrics`: Agent별 처리 시간, LLM 토큰 사용량 저장
-- **StatefulSet 배포**: 안정적인 데이터베이스 운영
-- **Connection Pool**: 효율적인 DB 연결 관리 (min 1, max 10)
-- **자동 초기화**: Helm 배포 시 스키마 자동 생성
-
-**효과**:
-- 모든 시스템 동작 추적 가능
-- 성능 병목 지점 분석
-- SLA 추적 및 리포팅 가능
-- 문제 발생 시 빠른 원인 파악
-
-#### Monitoring (Prometheus + Grafana) (Commit 15855fc)
-**목적**: 실시간 시스템 모니터링 및 시각화
-
-**Prometheus**:
-- **9가지 메트릭 타입 수집**:
-  - Counter: 요청 수, 에러 수, 캐시 히트/미스
-  - Histogram: 응답 시간 분포, 분류 신뢰도 분포
-  - Gauge: 현재 처리 중인 요청 수
-- **30일 데이터 보관**
-- **자동 Pod 발견**: ServiceAccount + RBAC로 Kubernetes API 접근
-
-**Grafana**:
-- **즉시 사용 가능한 대시보드**: Multi-Agent System Overview 자동 생성
-- **주요 시각화**:
-  - 전체 요청률 및 응답 시간 추이
-  - Agent별 처리 시간 분포 (히트맵)
-  - 에러율 및 상태 코드 분포
-  - 캐시 히트율 그래프
-  - LLM 토큰 사용량 추이 (비용 추적)
-
-**효과**:
-- 실시간 시스템 건강도 모니터링
-- 성능 이상 징후 조기 발견
-- 데이터 기반 최적화 의사결정
-
-#### 환경 변수 설정 개선 (Commit ba4cd4a)
-**목적**: 설정 관리 표준화 및 타입 안전성 확보
-
-- **Pydantic Settings 도입**: Router/SDB Agent 모두 동일한 설정 방식 사용
-- **타입 검증**: 환경 변수 자동 타입 변환 및 검증
-- **Kubernetes 통합**: values.yaml의 global 섹션으로 중앙 집중식 설정 관리
-- **.env 파일 지원**: 로컬 개발 시 `.env` 파일로 쉬운 설정
-
-**효과**:
-- 설정 오류 사전 방지
-- 로컬/Kubernetes 환경 간 일관된 설정 관리
-- 코드 가독성 및 유지보수성 향상
-
-### 기타 개선사항
-- **Autoscaling**: HPA로 부하에 따라 자동 스케일링 (Router: 3-10, SDB: 2-10)
-- **Health Check**: Liveness/Readiness Probe로 안정적인 서비스 운영
-- **보안 강화**: Secret으로 민감 정보 관리, RBAC 최소 권한 원칙
-- **로깅 개선**: 구조화된 로깅으로 디버깅 효율성 증대
+| Version | Date | Changes |
+|---------|------|---------|
+| **v1.1.0** | 2025-11-04 | Redis 캐싱, PostgreSQL 이력 관리, Prometheus + Grafana 모니터링, Pydantic Settings |
+| **v1.0.0** | 2025-10-16 | Multi-Agent 기본 아키텍처 구현, Router/SDB Agent, Helm Chart, Docker Compose |
 
 ---
 
-## 향후 Agent 추가
+## Documentation
 
-새로운 Agent를 추가하려면:
+| 문서 | 설명 |
+|------|------|
+| [Router Agent README](router-agent/README.md) | Router Agent 상세 API 및 구현 |
+| [SDB Agent README](sdb-agent/README.md) | SDB Agent 처리 파이프라인 상세 |
+| [고도화 Overview](docs/enhancement/OVERVIEW.md) | Redis, PostgreSQL, 모니터링 고도화 상세 |
+| [모니터링 가이드](docs/monitoring/README.md) | Prometheus + Grafana 설정 |
+| [K8s 배포 가이드](docs/kubernetes/MINIKUBE_DEPLOYMENT.md) | Minikube/Cloud 배포 절차 |
+| [환경 변수 가이드](docs/configuration/README.md) | 환경 변수 설정 흐름 |
+| [프로세스 플로우](sdb-agent/doc/PROCESS_FLOW.md) | SDB Agent 처리 흐름 상세 |
+| [인코딩 처리](sdb-agent/doc/ENCODING_FIX_GUIDE.md) | EUC-KR 인코딩 보존 전략 |
+| [대용량 파일 전략](sdb-agent/doc/LARGE_FILE_STRATEGY.md) | 17,000줄+ 파일 처리 방법 |
+| [Clang AST 가이드](sdb-agent/doc/CLANG_AST_GUIDE.md) | C++ 코드 파싱 구현 |
 
-1. **Agent 개발**: `{agent-name}/` 디렉터리 생성
-2. **Router 수정**: `router-agent/app/intent_classifier.py`에 분류 로직 추가
-3. **Registry 추가**: `router-agent/app/agent_registry.py`에 Agent 등록
-4. **Helm Chart 수정**: `helm/multi-agent-system/templates/`에 리소스 추가
-5. **배포**: Helm upgrade
+---
 
-## 문서
-
-### 배포 가이드
-- [빠른 시작 가이드](QUICKSTART.md) - 5분 안에 시작하기
-- [Minikube 로컬 배포](MINIKUBE_DEPLOYMENT.md) - 로컬 Kubernetes 배포
-- [클라우드 Kubernetes 배포](deploy/kubernetes-cloud-deploy.md) - GKE/EKS/AKS 배포
-- [Cloudflare Tunnel 설정](deploy/cloudflare-tunnel.md) - 외부 접근 설정
-
-### Kubernetes Secret 관리
-- [Kubernetes Secret 자동화](KUBERNETES_SECRET_AUTOMATION.md) - Secret 자동 생성 가이드
-- [Kubernetes Secret 문제 해결](KUBERNETES_SECRET_TROUBLESHOOTING.md) - 토큰 타입 에러 해결
-
-### 아키텍처 및 개발
-- [Multi-Agent 아키텍처](doc/MULTI_AGENT_ARCHITECTURE.md)
-- [프로세스 플로우](sdb-agent/doc/PROCESS_FLOW.md)
-- [Docker 가이드](sdb-agent/doc/DOCKER_GUIDE.md)
-- [인코딩 처리](sdb-agent/doc/ENCODING_FIX_GUIDE.md)
-- [대용량 파일 처리](sdb-agent/doc/LARGE_FILE_STRATEGY.md)
-
-## 라이선스
+## License
 
 MIT License
-
----
-
-**Version**: 1.1.0
-**Last Updated**: 2025-11-09
-
-### 버전 히스토리
-- **v1.1.0** (2025-11-04): Redis 캐싱, PostgreSQL 이력 관리, Prometheus + Grafana 모니터링 추가
-- **v1.0.0** (2025-10-16): Multi-Agent 시스템 기본 아키텍처 구현
