@@ -29,8 +29,8 @@
 ### Backend
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| Router Agent | **FastAPI** 0.109 + Uvicorn (ASGI) | Webhook 수신, Intent Classification, Agent 라우팅 |
-| SDB Agent | **Flask** 3.0 + Gunicorn (WSGI) | C++ 코드 수정, Bitbucket PR 생성 |
+| Router Agent | **Python 3.12** / FastAPI 0.109 + Uvicorn (ASGI) | Webhook 수신, Intent Classification, Agent 라우팅 |
+| SDB Agent | **Python 3.12** / Flask 3.0 (Docker Container, K8s Deployment) | C++ 코드 수정, Bitbucket PR 생성 |
 | LLM | **OpenAI GPT-5** | 이슈 분류, Spec 변환, 코드 Diff 생성 |
 | C++ Parser | **libclang** 16.0 (Clang AST) | 함수 단위 코드 추출, 라인 넘버 매핑 |
 | Embedding | **sentence-transformers** (all-MiniLM-L6-v2) | 유사 함수 검색 (코사인 유사도) |
