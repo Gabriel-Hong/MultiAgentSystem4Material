@@ -1,0 +1,114 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-init-scripts
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: postgresql
+    {{- include "multi-agent-system.labels" . | nindent 4 }}
+data:
+  01-init-schema.sql: |
+    -- PostgreSQL Extensions
+    CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+    -- 1. request_history 테이블
+    CREATE TABLE request_history (
+        id SERIAL PRIMARY KEY,
+        issue_key VARCHAR(50) NOT NULL,
+        webhook_event VARCHAR(50),
+        payload JSONB NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX idx_request_history_issue_key ON request_history(issue_key);
+    CREATE INDEX idx_request_history_created_at ON request_history(created_at DESC);
+    CREATE INDEX idx_request_history_status ON request_history(status) WHERE status != 'completed';
+    CREATE INDEX idx_request_history_payload_gin ON request_history USING GIN (payload);
+
+    COMMENT ON TABLE request_history IS 'Webhook 요청 이력';
+    COMMENT ON COLUMN request_history.issue_key IS 'Jira 이슈 키 (예: PROJ-123)';
+    COMMENT ON COLUMN request_history.payload IS 'Jira Webhook 전체 페이로드 (JSON)';
+    COMMENT ON COLUMN request_history.status IS '처리 상태: pending, processing, completed, failed';
+
+    -- 2. classification_history 테이블
+    CREATE TABLE classification_history (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER REFERENCES request_history(id) ON DELETE CASCADE,
+        issue_key VARCHAR(50) NOT NULL,
+        classified_agent VARCHAR(50) NOT NULL,
+        confidence DECIMAL(3, 2) NOT NULL,
+        reasoning TEXT,
+        cached BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX idx_classification_history_request_id ON classification_history(request_id);
+    CREATE INDEX idx_classification_history_agent ON classification_history(classified_agent);
+    CREATE INDEX idx_classification_history_created_at ON classification_history(created_at DESC);
+    CREATE INDEX idx_classification_history_confidence ON classification_history(confidence) WHERE confidence < 0.7;
+
+    COMMENT ON TABLE classification_history IS 'Intent Classification 결과 이력';
+    COMMENT ON COLUMN classification_history.confidence IS '분류 신뢰도 (0.00 ~ 1.00)';
+    COMMENT ON COLUMN classification_history.cached IS '캐시된 결과인지 여부';
+
+    -- 3. code_change_history 테이블
+    CREATE TABLE code_change_history (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER REFERENCES request_history(id) ON DELETE CASCADE,
+        issue_key VARCHAR(50) NOT NULL,
+        file_path TEXT NOT NULL,
+        change_type VARCHAR(20) NOT NULL,
+        diff_content TEXT,
+        branch_name VARCHAR(100),
+        commit_hash VARCHAR(40),
+        pr_url TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX idx_code_change_history_request_id ON code_change_history(request_id);
+    CREATE INDEX idx_code_change_history_issue_key ON code_change_history(issue_key);
+    CREATE INDEX idx_code_change_history_file_path ON code_change_history(file_path);
+    CREATE INDEX idx_code_change_history_created_at ON code_change_history(created_at DESC);
+
+    COMMENT ON TABLE code_change_history IS '코드 변경 이력';
+    COMMENT ON COLUMN code_change_history.change_type IS '변경 유형: added, modified, deleted';
+    COMMENT ON COLUMN code_change_history.diff_content IS 'Unified diff 형식의 변경 내용';
+
+    -- 4. performance_metrics 테이블
+    CREATE TABLE performance_metrics (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER REFERENCES request_history(id) ON DELETE CASCADE,
+        agent_name VARCHAR(50) NOT NULL,
+        metric_type VARCHAR(50) NOT NULL,
+        metric_value DECIMAL(10, 2) NOT NULL,
+        metadata JSONB,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX idx_performance_metrics_request_id ON performance_metrics(request_id);
+    CREATE INDEX idx_performance_metrics_agent_type ON performance_metrics(agent_name, metric_type);
+    CREATE INDEX idx_performance_metrics_created_at ON performance_metrics(created_at DESC);
+    CREATE INDEX idx_performance_metrics_metadata_gin ON performance_metrics USING GIN (metadata);
+
+    COMMENT ON TABLE performance_metrics IS '성능 메트릭';
+    COMMENT ON COLUMN performance_metrics.metric_type IS '메트릭 유형: latency, llm_tokens, api_calls 등';
+    COMMENT ON COLUMN performance_metrics.metadata IS '추가 정보 (JSON)';
+
+    -- Trigger: updated_at 자동 업데이트
+    CREATE OR REPLACE FUNCTION update_updated_at_column()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        NEW.updated_at = NOW();
+        RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER update_request_history_updated_at
+        BEFORE UPDATE ON request_history
+        FOR EACH ROW
+        EXECUTE FUNCTION update_updated_at_column();
+{{- end }}

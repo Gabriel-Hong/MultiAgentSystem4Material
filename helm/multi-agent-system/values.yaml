@@ -1,0 +1,276 @@
+# Multi-Agent System 기본 설정
+# 환경별로 values-local.yaml, values-production.yaml로 오버라이드
+
+global:
+  environment: local  # local, staging, production
+  namespace: agent-system
+
+  # OpenAI 공통 설정 (모든 Agent가 공유)
+  openai:
+    model: "gpt-5"
+    maxTokens: 128000
+
+  # Redis 공통 설정 (모든 Agent가 공유)
+  redis:
+    host: "redis"
+    port: 6379
+    db: 0
+    password: ""  # 비어있으면 None
+
+  # PostgreSQL 공통 설정 (모든 Agent가 공유)
+  postgresql:
+    host: "postgresql"
+    port: 5432
+    database: "agent_system"
+    user: "agent_user"
+
+# Container Registry 설정
+imageRegistry:
+  url: docker.io  # Minikube: docker.io, Production: your-registry
+  pullPolicy: IfNotPresent  # Always, IfNotPresent, Never
+
+# Router Agent 설정
+routerAgent:
+  enabled: true
+  name: router-agent
+  replicaCount: 3
+  
+  image:
+    repository: router-agent
+    tag: "1.0.0"
+  
+  service:
+    type: ClusterIP
+    port: 5000
+    targetPort: 5000
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  env:
+    # OpenAI 설정은 global.openai에서 참조
+    routerTimeout: 300
+    classificationConfidenceThreshold: 0.5
+    logLevel: "INFO"
+    sdbAgentUrl: "http://sdb-agent-svc:5000"
+    # Redis 설정은 global.redis에서 참조
+  
+  healthcheck:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 3
+  
+  readinessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    successThreshold: 1
+    failureThreshold: 3
+
+# SDB Agent 설정
+sdbAgent:
+  enabled: true
+  name: sdb-agent
+  replicaCount: 2
+  
+  image:
+    repository: sdb-agent
+    tag: "1.0.0"
+  
+  service:
+    type: ClusterIP
+    port: 5000
+    targetPort: 5000
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "2000m"
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  env:
+    bitbucketUrl: "https://api.bitbucket.org"
+    bitbucketUsername: "hjm0830@midasit.com"
+    bitbucketWorkspace: "mit_dev"
+    bitbucketRepository: "genw_new"
+    # OpenAI 설정은 global.openai에서 참조
+    testMode: false
+    # Redis 설정은 global.redis에서 참조
+  
+  healthcheck:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 3
+  
+  readinessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 20
+    periodSeconds: 5
+    timeoutSeconds: 3
+    successThreshold: 1
+    failureThreshold: 3
+
+# Ingress 설정
+ingress:
+  enabled: true
+  className: nginx  # nginx, traefik, alb (AWS)
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"  # Minikube에서는 false
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"  # Production에서 활성화
+  
+  hosts:
+    - host: agents.local  # Minikube: agents.local, Production: agents.your-domain.com
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: router-agent-svc
+              port: 5000
+  
+  tls: []
+  # tls:  # Production에서 활성화
+  #   - secretName: agent-tls
+  #     hosts:
+  #       - agents.your-domain.com
+
+# ConfigMap 설정
+config:
+  # 공통 설정
+  bitbucketUrl: "https://api.bitbucket.org"
+  # OpenAI 설정은 global.openai에서 참조 (ConfigMap 템플릿에서 처리)
+  logLevel: "INFO"
+
+# Secret 관리 (실제 값은 별도로 생성 필요)
+secrets:
+  # kubectl create secret generic agent-secrets \
+  #   --from-literal=openai-api-key='sk-...' \
+  #   --from-literal=bitbucket-access-token='...' \
+  #   -n agent-system
+  existingSecret: "agent-secrets"
+
+# Monitoring (Prometheus + Grafana)
+monitoring:
+  enabled: true
+  
+  prometheus:
+    enabled: true
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    storage: 20Gi
+    storageClassName: ""  # 기본 storageClass 사용, 특정 class 지정 가능
+    retention: 30d  # 데이터 보관 기간
+  
+  grafana:
+    enabled: true
+    adminUser: admin
+    adminPassword: "admin123"  # Production에서는 반드시 변경!
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    storage: 5Gi
+    storageClassName: ""  # 기본 storageClass 사용
+  
+  alertmanager:
+    enabled: false  # 필요시 활성화
+    slackWebhookUrl: ""  # Slack 알림용
+
+# Redis 캐싱 (Phase 2)
+redis:
+  enabled: true
+  image: redis:7.2-alpine
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  storage: 1Gi
+  storageClassName: ""  # 기본 storageClass 사용
+
+  # Redis 설정
+  maxMemory: 512mb
+  maxMemoryPolicy: allkeys-lru
+
+  # 환경변수 (Agent에서 사용)
+  env:
+    host: "redis"
+    port: 6379
+    db: 0
+    # password는 Secret으로 관리
+
+# PostgreSQL 이력 관리 (Phase 3)
+postgresql:
+  enabled: true
+  image: postgres:15-alpine
+  password: "postgres123"  # 개발환경 기본값, Production에서는 반드시 변경!
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  storage: 10Gi
+  storageClassName: ""  # Minikube: 기본 storageClass 사용
+
+# Network Policy (보안 강화)
+networkPolicy:
+  enabled: false
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+      - podSelector:
+          matchLabels:
+            tier: orchestrator
+      ports:
+        - protocol: TCP
+          port: 5000
+

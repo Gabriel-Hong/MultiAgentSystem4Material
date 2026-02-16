@@ -1,0 +1,46 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: postgresql
+    {{- include "multi-agent-system.labels" . | nindent 4 }}
+data:
+  POSTGRES_DB: {{ .Values.global.postgresql.database | quote }}
+  POSTGRES_USER: {{ .Values.global.postgresql.user | quote }}
+
+  # PostgreSQL 설정
+  postgresql.conf: |
+    # 연결
+    max_connections = 100
+    shared_buffers = 256MB
+
+    # 쿼리 플래너
+    effective_cache_size = 1GB
+    random_page_cost = 1.1  # SSD 기준
+
+    # WAL (Write-Ahead Log)
+    wal_level = replica
+    max_wal_size = 1GB
+    min_wal_size = 80MB
+
+    # 체크포인트
+    checkpoint_completion_target = 0.9
+    checkpoint_timeout = 10min
+
+    # 로깅
+    log_destination = 'stderr'
+    logging_collector = on
+    log_directory = '/var/log/postgresql'
+    log_filename = 'postgresql-%Y-%m-%d.log'
+    log_statement = 'ddl'  # DDL 문만 로깅
+    log_min_duration_statement = 1000  # 1초 이상 쿼리 로깅
+
+    # 통계
+    track_activities = on
+    track_counts = on
+    track_io_timing = on
+    track_functions = all
+{{- end }}

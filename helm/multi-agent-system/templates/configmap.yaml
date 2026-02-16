@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "multi-agent-system.labels" . | nindent 4 }}
+data:
+  # OpenAI 설정 (global에서 참조)
+  OPENAI_MODEL: {{ .Values.global.openai.model | quote }}
+  OPENAI_MAX_TOKENS: {{ .Values.global.openai.maxTokens | quote }}
+  # Bitbucket 설정
+  BITBUCKET_URL: {{ .Values.config.bitbucketUrl | quote }}
+  BITBUCKET_WORKSPACE: {{ .Values.sdbAgent.env.bitbucketWorkspace | quote }}
+  BITBUCKET_REPOSITORY: {{ .Values.sdbAgent.env.bitbucketRepository | quote }}
+  # 로깅
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+
