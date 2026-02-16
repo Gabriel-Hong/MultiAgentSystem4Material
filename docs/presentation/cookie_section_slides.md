@@ -15,19 +15,17 @@
 | 18 | 쿠키 인트로 | 4가지 교훈 소개 |
 | 19 | 교훈 01 - 문제 | 17,000줄을 AI에게 어떻게? |
 | 20 | 교훈 01 - 해결 | Clang AST 압축 |
+| 21-0 | 교훈 01 - 라인번호 (문제) | Bitbucket API는 라인 번호 없이 반환 |
 | 21-1 | 교훈 01 - 라인번호 (문제) | LLM이 수정 위치를 못 찾음 |
 | 21-2 | 교훈 01 - 라인번호 (해결) | 라인 번호 Prefix 추가 |
-| 21-3 | 교훈 01 - 라인번호 (결과) | 정확도 70% → 95% |
 | 22 | 교훈 02 - 문제 | JSON 파싱 실패 |
 | 23 | 교훈 02 - 해결 | 다단계 후처리 파이프라인 |
 | 24 | 교훈 02 - 레거시 (문제) | 인코딩/줄바꿈 깨짐 |
 | 25 | 교훈 02 - 레거시 (해결) | 원본 그대로 보존 |
 | 26 | 교훈 03 - 문제 | 잘못된 코드가 올라가면? |
 | 27 | 교훈 03 - 해결 | 3-Layer Validation |
-| 28 | 교훈 03 - 결과 | Zero Incidents |
 | 29 | 교훈 04 - 문제 | LLM API 비용 폭발 |
 | 30 | 교훈 04 - 해결 | Smart Caching |
-| 31 | 교훈 04 - 결과 | 60% 비용 절감 |
 | 32 | Key Takeaways | 4가지 원칙 정리 |
 
 ---
@@ -128,6 +126,46 @@ void GetSteelList_SS400();  // signature only
 
 ---
 
+# Slide 21-0: 교훈 01 - 라인번호 (문제)
+
+## 01. AI도 맥락이 필요하다
+
+# LLM에게 전달된 코드
+
+---
+
+### PROBLEM
+
+```cpp
+// MatIDB.cpp — Bitbucket API Response (라인 번호 없음)
+
+?       #include "stdafx.h"
+?       #include "DBDoc.h"
+?       #include "MatIDB.h"
+?       ...
+?       CMatIDB::CMatIDB(CDBDoc* pDoc)
+?       {
+?           m_pDoc = pDoc;
+?           m_dZero = 1.0E-07;
+?       }
+?       ...
+?       // 17,000줄의 코드가 계속됨...
+?       ...
+```
+
+---
+
+### The Issue
+
+| Source | Problem |
+|--------|---------|
+| 🐙 Bitbucket API | 라인 번호 없이 소스코드만 반환 |
+| 🤖 LLM | "10730번째 줄이 어디지?" |
+
+> 라인 번호 없이 17,000줄에서 **정확한 위치를 찾는 것은 불가능**에 가깝습니다
+
+---
+
 # Slide 21-1: 교훈 01 - 라인번호 (문제)
 
 ## 01. AI도 맥락이 필요하다
@@ -207,34 +245,6 @@ def format_code_with_line_numbers(self, content: str, start_line: int = 1) -> st
 ```
 
 > LLM: "10731번 줄을 수정하면 되겠군! ✅"
-
----
-
-# Slide 21-3: 교훈 01 - 라인번호 (결과)
-
-## 01. AI도 맥락이 필요하다
-
-# Result: 정확도 70% → 95%
-
----
-
-### Before vs After
-
-| Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| 수정 위치 정확도 | 70% | **95%** | +25% |
-| diff 적용 실패 | 빈번 | 거의 없음 | - |
-| 수동 수정 필요 | 30% | **5%** | -25% |
-
----
-
-### 💡 Takeaway
-
-> LLM에게 코드 수정을 요청할 때는
-> 
-> **라인 번호를 명시적으로 보여주세요.**
-> 
-> 간단한 포맷팅 하나로 정확도가 **25% 향상**됩니다.
 
 ---
 
@@ -489,43 +499,6 @@ Production Bug 😱
 
 ---
 
-# Slide 28: 교훈 03 - 결과
-
-## 03. AI는 가드레일이 필요하다
-
-# Result: Zero Incidents
-
----
-
-### Validation Results
-
-| Request | Confidence | Result |
-|---------|------------|--------|
-| "Material DB 추가해주세요" | 0.95 | ✅ PASS |
-| "Steel 강종 SS400 추가" | 0.92 | ✅ PASS |
-| "버그 수정해줘" | 0.30 | ❌ BLOCK |
-| "코드 리팩토링 해줘" | 0.25 | ❌ BLOCK |
-
----
-
-### Stats
-
-| Metric | Value |
-|--------|-------|
-| Pass Rate | **98%** |
-| False Positives | **0** |
-| Wrong Commits | **0** |
-
----
-
-### 💡 Takeaway
-
-> 자동화할수록 **안전장치**가 중요합니다.
-> 
-> "신뢰하되, 검증하라" (Trust but Verify)
-
----
-
 # Slide 29: 교훈 04 - 문제 제기
 
 ## 04. AI는 비용 관리가 중요하다
@@ -603,43 +576,6 @@ Request: "Material DB 추가"
 │  (38 seconds)   │
 └─────────────────┘
 ```
-
----
-
-# Slide 31: 교훈 04 - 결과
-
-## 04. AI는 비용 관리가 중요하다
-
-# Result: 60% Cost Reduction
-
----
-
-### Before vs After
-
-| Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| API Cost | 100% | 40% | **-60%** |
-| Response Time | 38s | 15s (avg) | **-60%** |
-| Cache Hit Rate | - | **70%** | - |
-
----
-
-### Monthly Cost
-
-```
-Before:  $375/month
-After:   $150/month
-         ─────────────
-Savings: $225/month (60%)
-```
-
----
-
-### 💡 Takeaway
-
-> 캐싱은 **비용**과 **성능**, 두 마리 토끼를 잡습니다.
-> 
-> LLM API를 쓴다면 캐싱은 필수입니다.
 
 ---
 
